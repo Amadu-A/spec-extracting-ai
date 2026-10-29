@@ -1,0 +1,3 @@
+/* app/web/static/css/tokens.css */
+/* Общие цвета, шрифт и геометрия светлой темы по renders/. */
+:root{--blue:#087bfa;--blue-dark:#0066e9;--ink:#10213f;--muted:#627b9f;--border:#dce8f5;--surface:#fff;--background:#eef7ff;--green:#00a87c;--orange:#fa7822;--radius:11px;--shadow:0 3px 12px #456e9520;font-family:Inter,"Segoe UI",Arial,sans-serif;color:var(--ink);font-size:14px}

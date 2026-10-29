@@ -1,0 +1,16 @@
+# .github/workflows/quality.yml
+# CI выполняет offline Python/JS и Chromium E2E без доступа к документам/секретам сервера.
+name: quality
+on: [push, pull_request]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - uses: astral-sh/setup-uv@v6
+        with: {version: '0.12.23', enable-cache: true}
+      - run: bash scripts/test.sh --browser

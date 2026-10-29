@@ -1,0 +1,14 @@
+<!-- app/web/static/icons.svg -->
+<!-- Локальная система пиктограмм: нет внешних шрифтов, скриптов и сетевых зависимостей. -->
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+<symbol id="brand" viewBox="0 0 32 32"><path fill="#087bfa" stroke="none" d="M16 1 29 8v16l-13 7L3 24V8Z"/><path stroke="white" d="m8 13 8-5 8 5-8 5-8-5Zm0 5 8 5 8-5"/></symbol>
+<symbol id="download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+<symbol id="file" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5Z"/><path d="M14 3v6h5M8 13h8M8 17h8"/></symbol>
+<symbol id="sheet" viewBox="0 0 24 24"><path d="M5 3h14v18H5ZM10 3v18M5 9h14M5 15h14"/></symbol>
+<symbol id="edit" viewBox="0 0 24 24"><path d="m16 3 5 5-12 12-6 1 1-6L16 3Zm-2 2 5 5"/></symbol>
+<symbol id="image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m5 18 5-6 4 4 3-3 3 5M16 7h1"/></symbol>
+<symbol id="fit" viewBox="0 0 24 24"><path d="M3 9V3h6m6 0h6v6m0 6v6h-6M9 21H3v-6M8 8h8v8H8Z"/></symbol>
+<symbol id="full" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5"/></symbol>
+<symbol id="retry" viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2 7M4 4v7h7"/></symbol>
+<symbol id="code" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m9 9-2 3 2 3m6-6 2 3-2 3m-1-7-3 8"/></symbol>
+</svg>

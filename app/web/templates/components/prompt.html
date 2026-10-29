@@ -1,0 +1,15 @@
+<!-- app/web/templates/components/prompt.html -->
+<!-- Доступный native dialog: prompt сохраняется сервером только в текущей сессии. -->
+<dialog class="modal" data-prompt-dialog aria-labelledby="prompt-title">
+  <div class="modal__heading"><h2 id="prompt-title">Редактирование промпта</h2>
+    <button type="button" class="button button--icon" data-prompt-close aria-label="Закрыть редактирование промпта">×</button></div>
+  <p class="modal__notice">ⓘ <span>Изменения сохраняются только для текущей сессии. После её завершения будет автоматически восстановлен стандартный промпт.</span></p>
+  <label class="visually-hidden" for="prompt-text">Инструкции извлечения</label>
+  <textarea id="prompt-text" class="modal__editor" data-prompt-text maxlength="20000" spellcheck="false"></textarea>
+  <p class="modal__error" data-prompt-error role="alert" hidden></p>
+  <div class="modal__actions">
+    <button type="button" class="button button--soft" data-prompt-close>Отмена</button>
+    <button type="button" class="button" data-prompt-restore>↺ &nbsp; Восстановить</button>
+    <button type="button" class="button button--primary" data-prompt-save>Сохранить</button>
+  </div>
+</dialog>

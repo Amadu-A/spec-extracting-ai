@@ -1,0 +1,77 @@
+# compose.yaml
+# Единственный project stack: своё состояние, существующие ai-shared/VLM/RabbitMQ.
+name: spec-extracting-ai
+x-app: &app
+  image: spec-extracting-ai:local
+  build: .
+  env_file:
+    - .env.example
+    - .env
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 2g
+  cpus: 2
+  logging: &logging
+    driver: local
+    options: {max-size: "10m", max-file: "5"}
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-specification}
+      POSTGRES_USER: ${DATABASE_USER:-specification}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Задайте DATABASE_PASSWORD в .env}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [private]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    networks: [private]
+    restart: "no"
+    profiles: [tools]
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *app
+    ports: ["${APP_BIND:-127.0.0.1}:${APP_PORT:-8083}:8083"]
+    volumes: [documents:/app/data]
+    networks: [private, ai-shared]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -m, app.operations, ready]
+      interval: 30s
+      timeout: 15s
+      start_period: 20s
+      retries: 3
+  worker:
+    <<: *app
+    command: [python, -m, app.worker]
+    volumes: [documents:/app/data]
+    networks: [private, ai-shared]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -m, app.operations, worker-health]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+networks:
+  private: {internal: true}
+  ai-shared: {external: true, name: ai-shared}
+volumes:
+  postgres-data:
+  documents:

@@ -1,0 +1,31 @@
+# pyproject.toml
+# Зависимости сервиса, группы проверок и единые правила Python.
+[project]
+name = "spec-extracting-ai"
+version = "1.0.0"
+description = "Локальное извлечение спецификаций через shared-vlm"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi>=0.115,<0.163", "uvicorn>=0.34,<0.55", "pydantic-settings>=2.8,<3",
+  "sqlalchemy>=2.0,<2.1", "psycopg[binary]>=3.2,<4", "pymupdf==1.26.6",
+  "openpyxl>=3.1,<4", "jinja2>=3.1.6,<4", "python-multipart>=0.0.20,<1",
+  "httpx>=0.28,<0.29", "aio-pika>=9.5,<11", "alembic>=1.15,<2",
+]
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "pytest-cov>=6,<8", "ruff>=0.11,<1", "playwright>=1.51,<2"]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = ["live: реальные shared-зависимости", "browser: установленный Chromium", "corpus: локальные документы examples"]
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["E501"]
+[tool.coverage.run]
+branch = true
+source = ["app"]
+[tool.coverage.report]
+show_missing = true

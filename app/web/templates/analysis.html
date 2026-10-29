@@ -1,0 +1,82 @@
+<!-- app/web/templates/analysis.html -->
+<!-- Экран по renders/1.png; PDF и JSON всегда принадлежат одному реальному заданию. -->
+{% extends "base.html" %}
+{% block scripts %}<script type="module" src="/static/js/app.js"></script>{% endblock %}
+{% block content %}
+<header class="header">
+  <div class="header__identity"><svg class="header__logo" aria-hidden="true"><use href="/static/icons.svg#brand"/></svg>
+    <h1>Извлечение спецификаций</h1><span class="badge" data-job-status role="status">● &nbsp; Ожидание документа</span></div>
+  <nav class="header__exports" aria-label="Экспорт результата">
+    <button class="button button--primary" data-export="json" disabled><svg class="icon"><use href="/static/icons.svg#download"/></svg>Экспорт JSON</button>
+    <button class="button button--green" data-export="xlsx" disabled><svg class="icon"><use href="/static/icons.svg#sheet"/></svg>Экспорт Excel</button>
+    <button class="button button--icon" data-logout title="Завершить веб-сессию" aria-label="Выйти из веб-сессии">↪</button>
+  </nav>
+</header>
+<main class="workspace">
+  <form class="upload" data-upload-form novalidate>
+    <div class="upload__field upload__field--file"><label for="pdf-file">Файл документа</label>
+      <div class="upload__picker" data-drop-zone>
+        <button type="button" class="upload__choose" data-file-choose><svg class="icon"><use href="/static/icons.svg#file"/></svg><span data-file-name>Выберите PDF или перетащите сюда</span></button>
+        <button type="button" class="upload__remove" data-file-remove aria-label="Убрать документ" title="Убрать документ">×</button>
+      </div><input type="file" id="pdf-file" data-file accept="application/pdf,.pdf" class="visually-hidden">
+      <small data-file-meta>PDF, до {{ max_upload_mb }} МБ · физические страницы с 1</small>
+    </div>
+    <div class="upload__field"><label for="pages">Страницы</label><input id="pages" data-pages placeholder="1-5, 8, 12-16" autocomplete="off" required><small data-pages-hint>Например: 1-5, 8, 12-16</small></div>
+    <div class="upload__field upload__field--code"><label for="project">Шифр проекта</label><input id="project" data-project placeholder="Подтвердите шифр проекта" maxlength="200" required><small data-project-hint>Записывается в UserComment1</small></div>
+    <button type="button" class="button button--outline upload__action" data-prompt-open><svg class="icon"><use href="/static/icons.svg#edit"/></svg>Изменить промпт</button>
+    <button type="submit" class="button button--primary upload__action upload__action--start" data-start><span aria-hidden="true">▶</span>Запустить анализ</button>
+    <p class="upload__error" data-form-error role="alert" hidden></p>
+  </form>
+  <div class="workspace__columns">
+    <section class="viewer panel" data-viewer aria-labelledby="viewer-title">
+      <div class="viewer__toolbar">
+        <h2 class="panel__title" id="viewer-title"><svg class="icon"><use href="/static/icons.svg#image"/></svg>Лист документа</h2>
+        <div class="viewer__navigation"><button class="button button--icon" data-page-prev aria-label="Предыдущий PDF-лист" title="Предыдущий PDF-лист">‹</button>
+          <label class="viewer__page-label">Лист <input data-page-number type="number" min="1" value="1" aria-label="Номер просматриваемой PDF-страницы"> <span data-page-total>из 0</span></label>
+          <button class="button button--icon" data-page-next aria-label="Следующий PDF-лист" title="Следующий PDF-лист">›</button></div>
+        <div class="viewer__zoom"><button class="button button--icon" data-zoom-out title="Уменьшить" aria-label="Уменьшить">−</button><output data-zoom>100%</output><button class="button button--icon" data-zoom-in title="Увеличить" aria-label="Увеличить">+</button></div>
+        <button class="button button--icon" data-fit title="Вписать лист / по ширине" aria-label="Вписать лист / по ширине"><svg class="icon"><use href="/static/icons.svg#fit"/></svg></button>
+        <button class="button button--icon" data-fullscreen title="Полноэкранный просмотр" aria-label="Полноэкранный просмотр"><svg class="icon"><use href="/static/icons.svg#full"/></svg></button>
+        <span class="badge viewer__processing" data-processing-label>Нет обработки</span>
+        <button class="button button--icon" data-hand title="Перетаскивание страницы" aria-label="Перетаскивание страницы" aria-pressed="false">✋</button>
+        <button class="button button--icon" data-retry title="Повторить просмотренную страницу и зависимые листы" aria-label="Повторить просмотренную страницу" disabled><svg class="icon"><use href="/static/icons.svg#retry"/></svg></button>
+      </div>
+      <div class="viewer__canvas" data-canvas>
+        <div class="viewer__empty" data-viewer-empty><svg><use href="/static/icons.svg#image"/></svg><p>Загрузите проектную документацию</p><small>Слева — оригинальный PDF, справа — ответ модели</small></div>
+        <img class="viewer__image" data-page-image alt="" hidden>
+        <p class="viewer__error" data-preview-error role="alert" hidden></p>
+      </div>
+      <div class="viewer__footer"><span data-selection-label>Страницы ещё не выбраны</span><button class="button button--soft" data-cancel hidden>Остановить анализ</button></div>
+      <nav class="thumbnails" data-thumbnails aria-label="Миниатюры PDF-страниц"></nav>
+    </section>
+    <aside class="workspace__results" aria-label="Результаты анализа">
+      <section class="result panel" aria-labelledby="result-title">
+        <div class="result__heading"><h2 class="panel__title" id="result-title"><svg class="icon"><use href="/static/icons.svg#code"/></svg>Потоковый JSON</h2>
+          <span class="badge badge--green" data-stream-state>Ожидание запуска</span>
+          <div class="result__menu"><button class="button button--icon" data-menu-toggle aria-label="Действия с JSON" aria-expanded="false">⋯</button>
+            <div class="result__dropdown" data-menu hidden><button data-copy>Копировать подтверждённый JSON</button><button data-toggle-view>Показать подтверждённый JSON</button></div></div>
+        </div>
+        <div class="code" data-code-scroll tabindex="0" aria-label="Поток JSON"><pre class="code__content" data-code><span class="code__placeholder">Ответ shared-vlm появится после запуска анализа.</span></pre></div>
+        <p class="result__caption" data-result-caption>Live-поток — необработанный ответ. Экспорт содержит только подтверждённые позиции.</p>
+        <div class="metrics">
+          <article class="metrics__card metrics__card--blue"><span>▧ &nbsp; Найдено записей</span><strong data-item-count>0</strong></article>
+          <article class="metrics__card metrics__card--green"><span>▣ &nbsp; Текущая страница</span><strong data-current-page>—</strong></article>
+          <article class="metrics__card metrics__card--purple"><span>◉ &nbsp; Прогресс</span><strong data-progress>0%</strong><progress data-progress-bar value="0" max="100" aria-label="Прогресс по завершённым страницам"></progress></article>
+          <button type="button" class="metrics__card metrics__card--orange" data-warnings-open><span>⚠ &nbsp; Подозрительных строк</span><strong data-warning-count>0</strong></button>
+        </div>
+      </section>
+      <section class="journal panel" aria-labelledby="journal-title"><div class="journal__heading"><h2 id="journal-title">Журнал этапов</h2><button class="journal__toggle" data-journal-toggle aria-expanded="true">⌃ &nbsp; Свернуть</button></div>
+        <ol class="journal__list" data-journal><li class="journal__empty">Фактические этапы появятся при обработке документа.</li></ol>
+      </section>
+    </aside>
+  </div>
+</main>
+{% include "components/prompt.html" %}
+<dialog class="modal modal--small" data-login-dialog aria-labelledby="login-title"><h2 id="login-title">Вход в сервис</h2>
+  <p>Введите пароль веб-интерфейса. Документы и временный промпт изолированы в вашей сессии.</p>
+  <form data-login-form><label for="ui-password">Пароль</label><input id="ui-password" data-login-password type="password" autocomplete="current-password" required>
+    <p data-login-error role="alert" hidden></p><button class="button button--primary" type="submit">Войти</button></form>
+</dialog>
+<dialog class="modal" data-warnings-dialog aria-labelledby="warnings-title"><div class="modal__heading"><h2 id="warnings-title">Предупреждения и непроверенные строки</h2><button class="button button--icon" data-warnings-close aria-label="Закрыть предупреждения">×</button></div>
+  <p>Эти строки требуют проверки по оригиналу. Они не подменяются выдуманными значениями.</p><div class="warnings" data-warnings></div><button class="button" data-warnings-more hidden>Показать ещё</button></dialog>
+{% endblock %}

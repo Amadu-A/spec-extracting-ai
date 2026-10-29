@@ -1,0 +1,18 @@
+<!-- app/web/templates/base.html -->
+<!-- Общая семантическая оболочка; данные и действия поступают через публичный API. -->
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Извлечение спецификаций</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="/static/icons.svg#brand" type="image/svg+xml">
+  {% block scripts %}{% endblock %}
+</head>
+<body class="page">
+{% block content %}{% endblock %}
+<p class="notification" data-notification role="status" aria-live="polite" hidden></p>
+</body>
+</html>

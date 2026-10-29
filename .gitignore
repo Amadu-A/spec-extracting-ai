@@ -218,3 +218,17 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Локальные документы и рабочие артефакты проверок сервиса.
+#examples/
+.reference/
+.uv-cache/
+.uv-cache-local/
+.wheels/
+data/
+tmp/
+test-results/
+playwright-report/
+reports/live/
+reports/coverage.json
+node_modules/

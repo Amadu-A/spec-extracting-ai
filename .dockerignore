@@ -1,0 +1,20 @@
+# .dockerignore
+# В build context не попадают реальные документы, секреты и результаты проверок.
+.git
+.env
+.venv
+.uv-cache*
+.wheels
+.reference
+examples
+renders
+tmp
+data
+reports/live
+node_modules
+*.log
+**/__pycache__
+.pytest_cache
+.ruff_cache
+test-results
+htmlcov

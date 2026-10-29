@@ -1,0 +1,9 @@
+# .gitattributes
+# Linux shell entrypoints всегда сохраняются LF, Python/документация — UTF-8 текст.
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
