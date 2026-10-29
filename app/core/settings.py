@@ -18,7 +18,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="forbid",
     )
-    app_bind: str = "127.0.0.1"
+    app_bind: str = "0.0.0.0"
     app_port: int = Field(8083, ge=1024, le=65535)
     database_host: str = "postgres"
     database_port: int = 5432

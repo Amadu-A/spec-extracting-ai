@@ -45,7 +45,7 @@ services:
       postgres: {condition: service_healthy}
   api:
     <<: *app
-    ports: ["${APP_BIND:-127.0.0.1}:${APP_PORT:-8083}:8083"]
+    ports: ["${APP_BIND:-0.0.0.0}:${APP_PORT:-8083}:8083"]
     volumes: [documents:/app/data]
     networks: [private, ai-shared]
     depends_on:

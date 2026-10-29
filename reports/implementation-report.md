@@ -63,3 +63,18 @@ Coverage последнего Windows-набора с Chromium: 83,83% statement
 Список файлов: `files.md`. Настройки и запуск: `../README.md`. API-примеры: `../docs/API.md`. Проверки руками и pull/rebuild: `../docs/operations.md`.
 
 Рабочие команды: Windows `.\ops\check-quality.ps1 -Browser`; Linux `bash scripts/test.sh --browser`; deployment `bash scripts/up.sh`. Все пользовательские команды показывают логи. Git commit/push выполняет владелец после просмотра diff и проверок.
+
+## Публикация по адресу сервера — 29.10.2026
+
+После push владельца сверены удалённый `main` приложения `86cb30a162698c9c8cf0ad87cb6e10711b768e35` и чистое локальное состояние на старте проверки. Текущий `main` shared infrastructure остался `b0d955acaeb9e54c24a4b44c787883808d467330`; правила прочитаны начиная с `docs/LLM_CONTEXT.md`.
+
+Причина отсутствия доступа с другого компьютера — публикация порта только на `127.0.0.1`. Значение `APP_BIND` изменено на `0.0.0.0` в `.env.example`, Settings и fallback Compose. Стандартный адрес клиента — `http://<IP_сервера>:8083`; `0.0.0.0` в браузере не используется. Привязку к одному IP можно переопределить. Обновлены `README.md` и `docs/operations.md`. Новые секреты и миграции не требуются; применение требует пересоздания API через существующий `scripts/up.sh`.
+
+Фактические проверки этого изменения:
+
+- Windows `ops/check-quality.ps1 -Browser`: Ruff/format, 4 JS и 80 Python/Chromium тестов пройдены; одно прежнее предупреждение о pytest cache ACL.
+- Реальный Compose config: стандартная и пустая привязка дают `0.0.0.0:8083`; overrides `127.0.0.1` и конкретного IP сохраняются. PostgreSQL и worker не получили host ports.
+- Production image пересобран. Во временном собственном контейнере подтверждён Docker binding `0.0.0.0:8083`; по адресу Windows-хоста вне loopback получены HTTP 200 для `/`, `/docs`, `/openapi.json`, JS из HTML и `/api/v1/health/live`. Контейнер удалён после проверки. БД, RabbitMQ и модель этим сетевым тестом не подменялись и не проверялись.
+- Серверная проверка только на чтение: `192.168.55.3:8000/health` вернул 200; TCP `192.168.55.3:8083` с рабочего компьютера недоступен. Docker context здесь — `desktop-linux`, доступа к shell сервера нет: серверное развёртывание, firewall/NAT и сквозная готовность не подтверждены.
+
+Изменения подготовлены локально без commit/push. Для полного запуска остаётся выделить app user/vhost RabbitMQ и заполнить настройки по README; shared stack не изменялся.
