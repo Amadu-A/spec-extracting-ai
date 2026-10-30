@@ -57,6 +57,16 @@ def mock_docker_main() -> int:
     elif args and args[0] == "inspect":
         code = 0 if args[-1] == CONTAINER else 1
         output = "true" if state["running"] and code == 0 else "false"
+    elif args[:2] == ["image", "inspect"]:
+        code = 0 if state.get("postgres_cached", True) else 1
+    elif args and args[0] == "pull":
+        mirror = args[-1].startswith("mirror.gcr.io/")
+        code = 0 if state.get("mirror_ok" if mirror else "hub_ok", True) else 1
+        if code == 0:
+            state["pulled"] = args[-1]
+    elif args[:2] == ["image", "tag"]:
+        assert args[2:] == ["mirror.gcr.io/library/postgres:16-alpine", "postgres:16-alpine"]
+        state["retagged"] = True
     elif args and args[0] == "compose":
         if "config" in args:
             code = 0 if state["compose_config"] else 1
@@ -64,7 +74,10 @@ def mock_docker_main() -> int:
             state["built"] = True
             output = "BUILD_DETAIL_FIRST\nImage test-app Built"
         elif "run" in args:
-            if "broker-config" in args:
+            if "-c" in args:
+                code = state.get("image_check_exit", 0)
+                output = "IMAGE_UID_10001_OK" if code == 0 else "PermissionError"
+            elif "broker-config" in args:
                 assert state["built"], "Образ должен быть собран перед чтением Settings"
                 code = 1 if state.get("bootstrap_error") else 0
                 output = "\n".join(state["config"]) if code == 0 else ""
@@ -85,6 +98,9 @@ def mock_docker_main() -> int:
                 state["up_count"] += 1
         elif "logs" in args:
             output = "RUNTIME_DETAIL"
+        elif "exec" in args and "broker-check" in args:
+            code = state.get("broker_check_exit", 0)
+            output = "AMQP_DURABLE_CONSUMER_OK" if code == 0 else "AMQP_FAILURE"
         elif "ps" not in args:
             code = 1
     elif args and args[0] == "exec":
@@ -282,6 +298,7 @@ def test_first_start_and_repeat_are_idempotent(deployment):
     state, run = deployment
     first = run()
     assert first.returncode == 0, first.stderr
+    assert "mutations=true" in first.stdout and "AMQP_DURABLE_CONSUMER_OK" in first.stdout
     assert "BUILD_DETAIL_FIRST" in first.stdout
     assert "Создание пользователя приложения RabbitMQ" in first.stdout
     assert "Проверка пароля RabbitMQ" in first.stdout
@@ -300,6 +317,7 @@ def test_first_start_and_repeat_are_idempotent(deployment):
     assert all(event["stdin_length"] == len(PASSWORD) for event in password_events)
     second = run(trace=True)
     assert second.returncode == 0, second.stderr
+    assert "mutations=false" in second.stdout
     assert state["mutations"] == ["add_user", "add_vhost", "set_permissions"]
     assert state["up_count"] == 2
 
@@ -317,6 +335,69 @@ def test_existing_permissions_are_repaired_only_in_own_vhost(deployment):
     assert state["vhosts"][VHOST][USER] == [".*", ".*", ".*"]
     assert state["vhosts"]["other-project"] == {"other-project": [".*", ".*", ".*"]}
     assert state["users"]["other-project"]["password"] == "another"
+
+
+def test_real_neighbors_are_untouched(deployment):
+    """Сохраняет учётные записи и права всех трёх соседей при создании specification."""
+    state, run = deployment
+    for name, tags in (
+        ("shared_admin", "[administrator]"),
+        ("contract-diff", "[]"),
+        ("pdrd_validation", "[]"),
+    ):
+        state["users"][name] = {"password": "neighbor-password-only", "tags": tags}
+        state["vhosts"].setdefault(name, {})[name] = [".*", ".*", ".*"]
+    users_before = json.loads(json.dumps(state["users"]))
+    vhosts_before = json.loads(json.dumps(state["vhosts"]))
+    assert run().returncode == 0
+    for name, value in users_before.items():
+        assert state["users"][name] == value
+    for name, value in vhosts_before.items():
+        assert state["vhosts"][name] == value
+
+
+def test_unreadable_image_stops_before_bootstrap(deployment):
+    """Первая проверка настоящего USER/config обрывает запуск до команд RabbitMQ."""
+    state, run = deployment
+    state["image_check_exit"] = 1
+    result = run()
+    assert result.returncode != 0 and "PermissionError" in result.stdout
+    assert state["mutations"] == [] and command_names(state) == []
+    assert state["up_count"] == 0
+
+
+@pytest.mark.parametrize("mirror_ok", [True, False])
+def test_docker_hub_failure_uses_mirror_without_changing_compose(deployment, mirror_ok):
+    """Проверяет основной pull, резервный pull и остановку до bootstrap при двух отказах."""
+    state, run = deployment
+    state.update(postgres_cached=False, hub_ok=False, mirror_ok=mirror_ok)
+    result = run()
+    pulls = [event["args"] for event in state["journal"] if event["args"][0] == "pull"]
+    assert pulls == [
+        ["pull", "postgres:16-alpine"],
+        ["pull", "mirror.gcr.io/library/postgres:16-alpine"],
+    ]
+    assert (result.returncode == 0) == mirror_ok
+    assert state.get("retagged", False) == mirror_ok
+    if not mirror_ok:
+        assert state["mutations"] == [] and command_names(state) == []
+
+
+def test_cached_postgres_does_not_require_registry(deployment):
+    """Имеющийся локально образ PostgreSQL позволяет развёртывание без Docker Hub."""
+    state, run = deployment
+    state.update(hub_ok=False, mirror_ok=False)
+    assert run().returncode == 0
+    assert not any(event["args"][0] == "pull" for event in state["journal"])
+
+
+def test_missing_worker_subscription_is_not_a_successful_deploy(deployment):
+    """Отказ реального диагностического процесса завершает up.sh ненулевым кодом."""
+    state, run = deployment
+    state["broker_check_exit"] = 1
+    result = run()
+    assert result.returncode != 0
+    assert "AMQP_FAILURE" in result.stdout
 
 
 def test_wrong_password_does_not_change_user_or_start_service(deployment):

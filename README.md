@@ -18,7 +18,7 @@ UI_PASSWORD=длинный_пароль_веб_интерфейса
 API_KEYS='{"onec":"отдельный_ключ_не_короче_24_символов","evaluation":"другой_длинный_ключ"}'
 ```
 
-`scripts/up.sh` сам создаёт отсутствующие app user/vhost `specification` в существующем `shared-rabbitmq-1`, проверяет пароль и выдаёт права только на этот vhost. Повторный запуск сохраняет учётную запись; неправильный пароль останавливает запуск без смены существующего пароля. Имена и предел ожидания CLI задаются в `.env.example`: `RABBITMQ_CONTAINER`, `RABBITMQ_USER`, `RABBITMQ_VHOST`, `RABBITMQ_CLI_TIMEOUT_SECONDS`.
+`scripts/up.sh` сам создаёт отсутствующие app user/vhost `specification` в существующем `shared-rabbitmq-1`, проверяет пароль и выдаёт права только на этот vhost. Повторный запуск сохраняет учётную запись; неправильный пароль останавливает запуск без смены существующего пароля. Автоподготовка ограничена `specification` и очередью `specification.extractions`, чтобы исключить изменение соседних проектов. Открытые параметры и предел ожидания CLI находятся в `.env.example`.
 
 Нужны доступ к Docker того же сервера, Compose, GNU timeout/flock и уже существующая сеть `ai-shared`. Секреты shared administrator не требуются, конфигурация shared stack не редактируется. VLM не требует API key. Команды первоначального создания `.env` без перезаписи — в [docs/operations.md](docs/operations.md#первое-создание-env).
 
@@ -30,7 +30,7 @@ API_KEYS='{"onec":"отдельный_ключ_не_короче_24_символ
 bash scripts/up.sh
 ```
 
-Команда собирает собственный образ, подготавливает app user/vhost, поднимает свою PostgreSQL, применяет миграции, проверяет реальный app-vhost и vision/streaming/JSON schema VLM, запускает API/worker с healthchecks. Базовый Python 3.12 образ Astral закреплён digest и загружается из GHCR; сборка приложения не запрашивает Python у Docker Hub. Логи видны. Общие сервисы не перезапускаются, их конфигурация и volumes не изменяются.
+Команда собирает собственный образ, проверяет import/config под UID 10001, подготавливает app user/vhost, поднимает свою PostgreSQL, применяет миграции, проверяет реальный app-vhost и vision/streaming/JSON schema VLM, запускает API/worker с healthchecks и проверяет AMQP-подписку worker. Python 3.12/Astral закреплён digest и загружается из GHCR. Если PostgreSQL отсутствует локально и Docker Hub недоступен, используется `mirror.gcr.io/library/postgres:16-alpine`. Логи видны. Общие сервисы не перезапускаются, их конфигурация и volumes не изменяются.
 
 По умолчанию `APP_BIND=0.0.0.0`: UI и REST API публикуются на IPv4-интерфейсах сервера, порт `8083`. С другого компьютера открывайте `http://<IP_сервера>:8083`, например `http://192.168.55.3:8083`; Swagger — по тому же адресу с `/docs`. `0.0.0.0` — адрес привязки, в браузере нужен настоящий IP сервера. Порт должен быть доступен между клиентом и сервером.
 
@@ -43,6 +43,7 @@ Windows (Python 3.12 и uv; Node берётся из закреплённого 
 ```powershell
 .\ops\check-quality.ps1
 .\ops\check-quality.ps1 -Browser
+.\ops\check-quality.ps1 -Browser -Docker
 ```
 
 Linux с Python 3.12 и uv; системный Node не требуется:
@@ -50,9 +51,10 @@ Linux с Python 3.12 и uv; системный Node не требуется:
 ```bash
 bash scripts/test.sh
 bash scripts/test.sh --browser
+bash scripts/test.sh --browser --docker
 ```
 
-Проверки не прячут логи. `--live` / `-Live` дополнительно проверяют реальные PostgreSQL (в отдельной временной schema), app-vhost и VLM по Settings. Для запуска live-проверок с host вместо Docker DNS нужны соответствующие адреса в окружении команды. Offline-модель и Docker test double существуют только в tests. Автоподготовка проверена изолированными функциональными тестами; её применение к серверному RabbitMQ подтверждается оператором после `up.sh`.
+Проверки не прячут логи. `--docker` / `-Docker` собирает настоящий образ из исходников с правами 600/700 и проверяет доступ к модулям и `config` под UID 10001; этот тест включён в CI. Нужен работающий Docker. `--live` / `-Live` дополнительно проверяют реальные PostgreSQL (в отдельной временной schema), app-vhost и VLM по Settings. Для запуска live-проверок с host вместо Docker DNS нужны соответствующие адреса в окружении команды. Offline-модель и Docker test double существуют только в tests. Серверная проверка: `docker compose --env-file .env.example --env-file .env exec -T api python -m app.operations broker-check --require-consumer`.
 
 Реальная оценка всех четырёх комплектов после запуска сервиса:
 

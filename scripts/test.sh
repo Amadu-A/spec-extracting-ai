@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/test.sh
-# Linux quality gate с видимыми логами; --browser/--live включают внешние зависимости.
+# Linux quality gate с видимыми логами; --browser/--live/--docker включают нужные зависимости.
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 uv sync --frozen
@@ -20,5 +20,6 @@ fi
 args=(--cov=app --cov-report=term-missing --cov-report=json:reports/coverage.json)
 if [[ " ${*} " == *' --live '* ]]; then args+=(--postgres --broker --vlm); fi
 [[ -z "$marker" ]] || args+=(-m "$marker")
+if [[ " ${*} " == *' --docker '* ]]; then args+=(--docker); fi
 uv run --frozen pytest "${args[@]}"
 git diff --check

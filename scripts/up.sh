@@ -33,9 +33,23 @@ docker info >/dev/null
 docker network inspect ai-shared >/dev/null
 stage 'Сборка приложения'
 "${dc[@]}" build api worker
+stage 'Проверка образа под UID 10001'
+"${dc[@]}" run --rm --no-deps -T api python -c 'import os,sys; assert os.getuid() == 10001; from app.operations import main; sys.argv=["app.operations","config"]; sys.exit(main())'
+stage 'Проверка образа PostgreSQL'
+image_docker() {
+  # Ограничивает сетевой pull; вывод Docker остаётся видимым.
+  timeout --signal=TERM --kill-after=5s 180s bash -c 'docker "$@"' -- "$@"
+}
+if ! image_docker image inspect postgres:16-alpine >/dev/null 2>&1; then
+  if ! image_docker pull postgres:16-alpine; then
+    echo 'Docker Hub недоступен; пробуем mirror.gcr.io/library/postgres:16-alpine'
+    image_docker pull mirror.gcr.io/library/postgres:16-alpine
+    image_docker image tag mirror.gcr.io/library/postgres:16-alpine postgres:16-alpine
+  fi
+fi
 stage 'Проверка настроек через Pydantic'
 if ! broker_config="$("${dc[@]}" run --rm --no-deps -T api python -m app.operations broker-config)"; then
-  echo 'Подготовка RabbitMQ остановлена: проверьте настройки и секреты.' >&2
+  echo 'Подготовка RabbitMQ остановлена: не удалось выполнить модуль настроек. Проверьте ошибку выше.' >&2
   exit 1
 fi
 mapfile -t broker_values <<< "$broker_config"
@@ -87,6 +101,7 @@ rabbitmq_secret() {
     ' -- "$broker_timeout" "$expression" "$broker_user"
 }
 stage "Проверка пользователя RabbitMQ (лимит CLI: ${broker_timeout}с)"
+bootstrap_changed=false
 users="$(rabbitmq_ctl list_users --no-table-headers)"
 user_record="$(awk -v name="$broker_user" '$1 == name { print; exit }' <<< "$users")"
 if [[ -n "$user_record" ]]; then
@@ -97,6 +112,7 @@ if [[ -n "$user_record" ]]; then
 else
   stage 'Создание пользователя приложения RabbitMQ'
   rabbitmq_secret add_user
+  bootstrap_changed=true
 fi
 stage 'Проверка пароля RabbitMQ'
 if rabbitmq_secret authenticate_user; then :; else
@@ -118,12 +134,15 @@ vhosts="$(rabbitmq_ctl list_vhosts name --no-table-headers)"
 if ! awk -v name="$broker_vhost" '$0 == name { found=1 } END { exit !found }' <<< "$vhosts"; then
   stage 'Создание выделенного vhost RabbitMQ'
   rabbitmq_ctl add_vhost "$broker_vhost"
+  bootstrap_changed=true
 fi
 permissions="$(rabbitmq_ctl list_permissions -p "$broker_vhost" --no-table-headers)"
 if ! awk -v name="$broker_user" '$1 == name && $2 == ".*" && $3 == ".*" && $4 == ".*" { valid=1 } END { exit !valid }' <<< "$permissions"; then
   stage 'Настройка прав внутри выделенного vhost'
   rabbitmq_ctl set_permissions -p "$broker_vhost" "$broker_user" '.*' '.*' '.*'
+  bootstrap_changed=true
 fi
+echo "RabbitMQ bootstrap: user=$broker_user vhost=$broker_vhost mutations=$bootstrap_changed"
 unset broker_config broker_values broker_password
 stage 'Запуск собственной PostgreSQL и миграций'
 "${dc[@]}" up -d --wait postgres
@@ -132,6 +151,8 @@ stage 'Проверка настоящих app-vhost, vision и JSON schema'
 "${dc[@]}" run --rm --no-deps api python -m app.operations vision
 stage 'Запуск API и worker'
 "${dc[@]}" up -d --wait --wait-timeout 180 api worker
+stage 'Проверка реального AMQP и подписки worker'
+"${dc[@]}" exec -T api python -m app.operations broker-check --require-consumer
 "${dc[@]}" ps
 "${dc[@]}" logs --tail=40 api worker
 echo 'Запуск завершён. Проверьте UI и /docs на настроенном APP_BIND:APP_PORT.'

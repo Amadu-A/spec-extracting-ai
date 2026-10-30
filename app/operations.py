@@ -6,7 +6,7 @@ import asyncio
 import re
 import sys
 from pathlib import Path
-from time import time
+from time import monotonic, time
 
 import httpx
 from pydantic import ValidationError
@@ -14,6 +14,7 @@ from pydantic_settings import SettingsError
 
 from app.application.ports import PreparedPage
 from app.bootstrap import build_container
+from app.core.observability import configure_logging
 from app.core.settings import Settings
 from app.domain.reconcile import parse_model_response
 from app.infrastructure.environment import normalize_environment
@@ -36,6 +37,10 @@ def broker_bootstrap_values(settings: Settings) -> tuple[str, str, str, str, str
             raise ValueError(f"{name}: требуется отдельное имя из букв, цифр, точки, дефиса или _")
     if settings.rabbitmq_user.lower() in {"guest", "admin", "administrator", "shared_admin"}:
         raise ValueError("RabbitMQ: нужен отдельный пользователь приложения без служебных прав")
+    if (settings.rabbitmq_user, settings.rabbitmq_vhost) != ("specification", "specification"):
+        raise ValueError("Автоподготовка разрешена только для пользователя и vhost specification")
+    if settings.rabbitmq_queue != "specification.extractions":
+        raise ValueError("Автоподготовка требует очередь specification.extractions")
     password = settings.rabbitmq_password.get_secret_value()
     if len(password.encode("utf-8")) > 1024 or any(char in password for char in "\r\n\0"):
         raise ValueError("RABBITMQ_PASSWORD: требуется однострочный секрет длиной до 1024 байт")
@@ -82,6 +87,7 @@ def normalize_env() -> int:
 async def preflight(vision: bool) -> int:
     """Не меняет shared config; проверяет существующие credentials, alias и JSON modality."""
     root = build_container()
+    configure_logging(root.settings.log_level)
     try:
         checks = await asyncio.gather(root.repository.ping(), root.broker.ping(), root.model.ping())
         for name, result in zip(
@@ -118,6 +124,42 @@ async def preflight(vision: bool) -> int:
         await root.model.close()
 
 
+async def broker_check(require_consumer: bool = False, root=None) -> int:
+    """Проверяет реальный AMQP/durable queue и при необходимости подписку worker.
+
+    Не публикует тестовые сообщения в рабочую очередь и не извлекает чужие задания.
+    Тесты могут внедрить изолированный composition root вместо внешнего брокера.
+    """
+    try:
+        root = root or build_container()
+        configure_logging(root.settings.log_level)
+        if not await root.broker.ping():
+            print("RabbitMQ: ошибка подключения, пароля или durable-очереди", file=sys.stderr)
+            return 1
+        deadline = monotonic() + 15
+        while True:
+            queue = await root.broker.channel.declare_queue(
+                root.settings.rabbitmq_queue, passive=True
+            )
+            consumers = queue.declaration_result.consumer_count
+            if not require_consumer or consumers > 0:
+                print(
+                    f"RabbitMQ: user={root.settings.rabbitmq_user}, vhost={root.settings.rabbitmq_vhost}, "
+                    f"queue={root.settings.rabbitmq_queue}, durable=OK, consumers={consumers}"
+                )
+                return 0
+            if monotonic() >= deadline:
+                print("RabbitMQ: worker не подписан на очередь", file=sys.stderr)
+                return 1
+            await asyncio.sleep(0.5)
+    except Exception:
+        print("RabbitMQ: проверка AMQP завершилась отказом", file=sys.stderr)
+        return 1
+    finally:
+        if root is not None:
+            await asyncio.gather(root.broker.close(), root.model.close(), return_exceptions=True)
+
+
 def main() -> int:
     """Исполняет проверки; broker-config отдаёт секретный stdout только родительскому up.sh."""
     parser = argparse.ArgumentParser(description="Проверки сервиса спецификаций")
@@ -126,6 +168,7 @@ def main() -> int:
         choices=(
             "config",
             "broker-config",
+            "broker-check",
             "normalize-env",
             "preflight",
             "vision",
@@ -133,18 +176,31 @@ def main() -> int:
             "worker-health",
         ),
     )
+    parser.add_argument(
+        "--require-consumer", action="store_true", help="Требовать AMQP-подписку worker"
+    )
     arguments = parser.parse_args()
     if arguments.operation == "broker-config":
         return broker_config()
     if arguments.operation == "normalize-env":
         return normalize_env()
-    settings = Settings()
+    try:
+        settings = Settings()
+    except (ValidationError, SettingsError):
+        print("Некорректные настройки: проверьте .env.example, .env и окружение", file=sys.stderr)
+        return 2
     if arguments.operation == "config":
-        settings.require_secrets()
+        try:
+            settings.require_secrets()
+        except ValueError:
+            print("Проверьте обязательные секреты и их длину", file=sys.stderr)
+            return 2
         print("Settings/secrets: OK")
         return 0
     if arguments.operation in ("preflight", "vision"):
         return asyncio.run(preflight(arguments.operation == "vision"))
+    if arguments.operation == "broker-check":
+        return asyncio.run(broker_check(arguments.require_consumer))
     if arguments.operation == "worker-health":
         try:
             stamp = float(

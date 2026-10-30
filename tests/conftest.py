@@ -29,6 +29,9 @@ PASSWORD = "test-ui-password-only"
 def pytest_addoption(parser):
     """Явные флаги отделяют реальные зависимости от offline тестов и test doubles."""
     parser.addoption(
+        "--docker", action="store_true", help="Собирать настоящий образ и проверять UID/права"
+    )
+    parser.addoption(
         "--postgres", action="store_true", help="Проверять реальную PostgreSQL из Settings"
     )
     parser.addoption(

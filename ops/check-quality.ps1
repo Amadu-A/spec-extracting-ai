@@ -1,6 +1,6 @@
 ﻿# ops/check-quality.ps1
 # Одна Windows-команда: воспроизводимые зависимости, lint/format и offline Python/JS/E2E.
-param([switch]$Browser, [switch]$Live)
+param([switch]$Browser, [switch]$Live, [switch]$Docker)
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 function Invoke-Checked {
@@ -37,5 +37,6 @@ elseif ($Browser -and -not $Live) {
 }
 elseif (-not $Browser) { $TestArguments += @('-m', 'not browser') }
 if ($Live) { $TestArguments += @('--postgres', '--broker', '--vlm') }
+if ($Docker) { $TestArguments += '--docker' }
 Invoke-Checked uv $TestArguments
 Invoke-Checked git @('-c', ('safe.directory=' + (Get-Location).Path.Replace('\', '/')), 'diff', '--check')

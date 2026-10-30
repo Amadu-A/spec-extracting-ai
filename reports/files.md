@@ -87,6 +87,7 @@
 - renders/1.png
 - renders/2.png
 - reports/corpus-matrix.md
+- reports/deployment-repair.md
 - reports/files.md
 - reports/golden-review.md
 - reports/implementation-report.md
@@ -107,10 +108,12 @@
 - tests/test_broker_contract.py
 - tests/test_browser.py
 - tests/test_deployment.py
+- tests/test_docker_image.py
 - tests/test_domain.py
 - tests/test_environment.py
 - tests/test_live_dependencies.py
 - tests/test_logging.py
+- tests/test_operations.py
 - tests/test_quality.py
 - tests/test_recovery.py
 - uv.lock

@@ -1,5 +1,5 @@
 # .github/workflows/quality.yml
-# CI выполняет offline Python/JS и Chromium E2E без доступа к документам/секретам сервера.
+# CI выполняет Python/JS, Chromium E2E и настоящий Docker-тест без секретов сервера.
 name: quality
 on: [push, pull_request]
 jobs:
@@ -11,4 +11,4 @@ jobs:
         with: {python-version: '3.12'}
       - uses: astral-sh/setup-uv@v6
         with: {version: '0.12.23', enable-cache: true}
-      - run: bash scripts/test.sh --browser
+      - run: bash scripts/test.sh --browser --docker

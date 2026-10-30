@@ -34,11 +34,11 @@ git pull --ff-only origin main
   set -C
   printf 'DATABASE_PASSWORD=%s\nRABBITMQ_PASSWORD=%s\nUI_PASSWORD=%s\nAPI_KEYS={"onec":"%s","telegram":"%s","evaluation":"%s"}\n' \
     "$database_secret" "$rabbitmq_secret" "$ui_secret" "$onec_key" "$telegram_key" "$evaluation_key" > .env
-  printf 'Пароль входа в Web UI: %s\n' "$ui_secret"
+  printf '.env создан; секреты не выведены в терминал.\n'
 )
 ```
 
-Пароль UI появится только в вашем терминале. При последующих обновлениях `.env` не пересоздаётся. Если пользователь `specification` уже существует, в `RABBITMQ_PASSWORD` должен быть именно его действующий пароль; автоматической смены пароля нет.
+Для входа используйте `UI_PASSWORD` из своего файла, просматривая его локально в редакторе. При последующих обновлениях `.env` не пересоздаётся. Если пользователь `specification` уже существует, в `RABBITMQ_PASSWORD` должен быть именно его действующий пароль; автоматической смены пароля нет. Не запускайте `broker-config` вручную: его stdout — закрытый протокол передачи секрета родительскому `up.sh`.
 
 Подготовка RabbitMQ использует Settings в одноразовом контейнере приложения, затем `docker exec --user rabbitmq` в уже существующем контейнере. Пароль передаётся через stdin в приватный файл `/dev/shm` с удалением после команды; в argv/логи и файлы других проектов он не попадает. Проверяются теги пользователя, отсутствие прав в чужих vhost и права в собственном vhost. Ошибки чтения/аутентификации не считаются отсутствием записи. CLI и Docker-клиент ограничены timeout; flock запрещает два одновременных запуска.
 
@@ -52,15 +52,30 @@ uv run --frozen python -m app.operations normalize-env
 
 Команда оставляет `DATABASE_PASSWORD`, `RABBITMQ_PASSWORD`, `UI_PASSWORD`, `API_KEYS`. Действующие пароли и API-ключи сохраняются вместе с исходными кавычками и экранированием для Compose; только отсутствующие/пустые поля заполняются случайными значениями. Исходный файл сохраняется в `data/env-backups/`, новый получает права 600 и заменяется атомарно после проверки через Pydantic. При неверном синтаксисе/JSON или слишком коротком действующем секрете операция завершится отказом без смены пароля. Значения не печатаются. Повторная очистка не создаёт новые ключи.
 
-В показанном первоначальном `.env` поля `RABBITMQ_USER=spec-extraction` и `RABBITMQ_VHOST=spec-extraction` были несекретными overrides. После очистки действуют `RABBITMQ_USER=specification` и `RABBITMQ_VHOST=specification` из `.env.example`. Менять эти открытые имена следует в каталоге настроек. В предоставленном неудачном запуске сборка остановилась до подготовки RabbitMQ.
+В показанном первоначальном `.env` поля `RABBITMQ_USER=spec-extraction` и `RABBITMQ_VHOST=spec-extraction` были несекретными overrides. После очистки действуют `RABBITMQ_USER=specification` и `RABBITMQ_VHOST=specification` из `.env.example`. Автоподготовка намеренно отклоняет другие имена и очередь, отличную от `specification.extractions`. В предоставленном неудачном запуске сборка остановилась до подготовки RabbitMQ.
 
 ## Ошибки инструментов и загрузки образов
 
 `scripts/test.sh` и Windows quality gate используют Node из установленного Playwright. `uv sync --frozen` устанавливает его вместе с dev-зависимостями; установка системного `node` не нужна. Linux `--browser` дополнительно устанавливает Chromium и его системные библиотеки.
 
-Ошибка `failed to fetch anonymous token` / `TLS handshake timeout` на `auth.docker.io` означает отказ сетевого обращения к registry, а не ошибку Python-кода. Dockerfile приложения использует официальный образ `ghcr.io/astral-sh/uv:0.12.23-python3.12-trixie-slim` с закреплённым digest. Он содержит Python 3.12 на Debian 13; его загрузка не требует Docker Hub. Доступ к GHCR и PyPI по-прежнему необходим, а образ PostgreSQL остаётся `postgres:16-alpine`. Конфигурация общего Docker daemon не меняется.
+Ошибка `failed to fetch anonymous token` / `TLS handshake timeout` на `auth.docker.io` означает отказ сетевого обращения к registry, а не ошибку Python-кода. Dockerfile приложения использует официальный образ `ghcr.io/astral-sh/uv:0.12.23-python3.12-trixie-slim` с закреплённым digest. Он содержит Python 3.12 на Debian 13; его загрузка не требует Docker Hub. Для PostgreSQL сначала используется локальный `postgres:16-alpine`. Если его нет, выполняется pull из Docker Hub с общим пределом 180 секунд; при отказе — pull `mirror.gcr.io/library/postgres:16-alpine` с таким же пределом и локальное присвоение тега `postgres:16-alpine`. Ошибка обоих источников останавливает запуск до изменений RabbitMQ. Конфигурация Compose, общего Docker daemon, proxy и mirrors не меняется.
 
 После pull повторите `bash scripts/up.sh`: Docker использует уже скачанные слои. Если недоступен сам GHCR, сохраните текст ошибки сетевого шага; изменение секретов `.env` такую ошибку не исправляет.
+
+## Права файлов образа и регрессия Docker
+
+`COPY` сохраняет права файлов Linux build context. После `umask 077` новые Python-файлы могут получить 600, каталоги — 700; скопированные с владельцем root, они недоступны runtime-пользователю `app` (UID/GID 10001). Dockerfile явно задаёт исходникам, prompt и миграциям 644/755, корню `/app` — 755. Владельцем кода остаётся root; `/app/data` принадлежит app с правами 700. Установка зависимостей выполняется с umask 022. USER, read_only, cap_drop и no-new-privileges сохраняются.
+
+`up.sh` до bootstrap исполняет import/config под штатным USER. Отдельный pytest `tests/test_docker_image.py` с `--docker` собирает реальный Dockerfile из tar-контекста с 600/700, проверяет чтение всех модулей и ресурсов, UID 10001 и `python -m app.operations config` с read-only, network=none, cap_drop=ALL. Используются искусственные секреты; `.env` и документы в контекст не входят. Без флага тест пропускается явно; с флагом недоступный Docker означает ошибку. CI запускает его автоматически.
+
+```powershell
+.\ops\check-quality.ps1 -Browser -Docker
+uv run --frozen pytest tests/test_docker_image.py --docker -s
+```
+
+```bash
+bash scripts/test.sh --browser --docker
+```
 
 ## Обновление и тесты
 
@@ -74,6 +89,16 @@ docker compose --env-file .env.example --env-file .env logs -f --tail=100 api wo
 ```
 
 Если репозиторий расположен иначе, используйте его фактический путь. `up.sh` включает пересборку, миграции и реальные проверки зависимостей/vision. Нет необходимости в down или удалении volumes.
+
+Проверка действующего соединения и повторного bootstrap без ручного ввода паролей:
+
+```bash
+docker compose --env-file .env.example --env-file .env exec -T api python -m app.operations broker-check --require-consumer
+curl --fail --show-error http://127.0.0.1:8083/api/v1/health/ready
+bash scripts/up.sh
+```
+
+На повторном запуске ожидается `RabbitMQ bootstrap: user=specification vhost=specification mutations=false`. Итог AMQP: `user=specification, vhost=specification, queue=specification.extractions, durable=OK, consumers=N`, где N больше нуля. Диагностика использует настоящий адаптер приложения: соединение аутентифицируется указанным паролем, совместимый durable declare проверяет свойства очереди, passive declare показывает consumers. За 15 секунд worker должен подписаться; отсутствие подписки даёт ненулевой exit code. Сообщения не публикуются и не извлекаются. После этого проверяются фактические задания PDF через UI/API.
 
 ## Доступ по адресу сервера
 
