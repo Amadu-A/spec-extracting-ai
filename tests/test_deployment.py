@@ -431,3 +431,46 @@ def test_hung_docker_client_is_bounded(deployment):
     assert completed.returncode == 124
     assert time.monotonic() - started < 25
     assert state["up_count"] == 0
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="Linux shell проверяется на Linux; Windows gate запускает Node напрямую"
+)
+def test_linux_gate_uses_playwright_node_without_system_node(tmp_path):
+    """Выполняет настоящие четыре JS-теста, когда вызов системного node запрещён."""
+    git_bash = Path("C:/Program Files/Git/bin/bash.exe")
+    bash = str(git_bash) if git_bash.exists() else shutil.which("bash")
+    if bash is None:
+        pytest.skip("Нужен Bash для проверки Linux quality gate")
+    repository = tmp_path / "repository"
+    for name in (
+        "scripts/test.sh",
+        "package.json",
+        "tests/frontend/state.test.js",
+        "app/web/static/js/state.js",
+    ):
+        destination = repository / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / name, destination)
+    python = shlex.quote(Path(sys.executable).as_posix())
+    hook = tmp_path / "without_system_node.sh"
+    hook.write_text(
+        "node() { echo 'SYSTEM_NODE_CALLED' >&2; return 97; }\n"
+        "git() { return 0; }\n"
+        + "uv() { if [[ ${1-} == run && ${3-} == python ]]; then shift 3; "
+        + python
+        + ' "$@"; else return 0; fi; }\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    completed = subprocess.run(
+        [bash, (repository / "scripts/test.sh").as_posix()],
+        cwd=repository,
+        env=dict(os.environ, BASH_ENV=hook.as_posix(), MSYS2_ARG_CONV_EXCL="*"),
+        capture_output=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "SYSTEM_NODE_CALLED" not in completed.stderr
+    assert "tests 4" in completed.stdout

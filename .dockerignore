@@ -2,6 +2,8 @@
 # В build context не попадают реальные документы, секреты и результаты проверок.
 .git
 .env
+.env.*
+!.env.example
 .venv
 .uv-cache*
 .wheels

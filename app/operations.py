@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import re
 import sys
+from pathlib import Path
 from time import time
 
 import httpx
@@ -15,6 +16,7 @@ from app.application.ports import PreparedPage
 from app.bootstrap import build_container
 from app.core.settings import Settings
 from app.domain.reconcile import parse_model_response
+from app.infrastructure.environment import normalize_environment
 
 
 def broker_bootstrap_values(settings: Settings) -> tuple[str, str, str, str, str]:
@@ -57,6 +59,23 @@ def broker_config() -> int:
         print(str(exc), file=sys.stderr)
         return 2
     sys.stdout.write("\n".join(values) + "\n")
+    return 0
+
+
+def normalize_env() -> int:
+    """Очищает собственный .env и выводит только имена полей, без значений секретов."""
+    try:
+        removed, generated, backup = normalize_environment(Path.cwd())
+    except (ValidationError, SettingsError, ValueError, OSError):
+        print(".env не изменён: проверьте формат, длину секретов и права доступа", file=sys.stderr)
+        return 2
+    print(".env: DATABASE_PASSWORD, RABBITMQ_PASSWORD, UI_PASSWORD, API_KEYS; права 600")
+    if removed:
+        print("Удалены несекретные поля: " + ", ".join(removed))
+    if generated:
+        print("Созданы недостающие секреты: " + ", ".join(generated))
+    if backup is not None:
+        print("Резервная копия: " + str(backup.relative_to(Path.cwd().resolve())))
     return 0
 
 
@@ -104,11 +123,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Проверки сервиса спецификаций")
     parser.add_argument(
         "operation",
-        choices=("config", "broker-config", "preflight", "vision", "ready", "worker-health"),
+        choices=(
+            "config",
+            "broker-config",
+            "normalize-env",
+            "preflight",
+            "vision",
+            "ready",
+            "worker-health",
+        ),
     )
     arguments = parser.parse_args()
     if arguments.operation == "broker-config":
         return broker_config()
+    if arguments.operation == "normalize-env":
+        return normalize_env()
     settings = Settings()
     if arguments.operation == "config":
         settings.require_secrets()

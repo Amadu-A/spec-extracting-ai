@@ -97,3 +97,25 @@ Coverage последнего Windows-набора с Chromium: 83,83% statement
 - Production image пересобран. Серверный RabbitMQ не изменялся из этой среды; подтверждение реального bootstrap и app-vhost ожидается после запуска оператором на aistation.
 
 Изменённые файлы: `.env.example`, `AGENTS.md`, `app/core/settings.py`, `app/operations.py`, `scripts/up.sh`, `README.md`, `docs/operations.md`, `reports/files.md`, этот отчёт. Добавлены `tests/test_bootstrap_settings.py` и `tests/test_deployment.py`. Миграции не требуются. Commit/push выполняет владелец.
+
+## Ошибки серверного запуска и очистка .env — 30.10.2026
+
+Изучен приложенный лог владельца: Windows quality завершился 122 passed и успешным push `314a694` в оба origin URL. На сервере `scripts/test.sh` остановился на `node: command not found`; сборка остановилась на TLS handshake timeout обращения к `auth.docker.io` до подготовки RabbitMQ. Отказ блока создания существующего `.env` был предусмотренной защитой от перезаписи.
+
+Linux/Windows quality теперь запускают Node, поставляемый закреплённым Playwright 1.64.1. Системный Node не требуется; лишний шаг setup-node удалён из CI. В Windows исправлено декодирование UTF-8 native stdout/stderr во время проверки с восстановлением прежней console encoding после команды.
+
+Dockerfile использует официальный [derived image Astral](https://docs.astral.sh/uv/guides/integration/docker/) `ghcr.io/astral-sh/uv:0.12.23-python3.12-trixie-slim`, закреплённый OCI digest `sha256:28d570c06d150303b39adfa731ada20956c63fc86b1277d7ff2ad63185974092`. Его существование и linux/amd64 manifest проверены перед изменением. Python 3.12.15 / Debian 13 применяются в builder и runtime; загрузка Python не обращается к Docker Hub. Общий Docker daemon, registry mirrors, proxy и shared stack не изменялись. Образ PostgreSQL по-прежнему поступает из Docker Hub, если его нет локально.
+
+Добавлена операция `uv run --frozen python -m app.operations normalize-env`. Она читает собственный `.env` через источник Pydantic, оставляет только DATABASE_PASSWORD/RABBITMQ_PASSWORD/UI_PASSWORD/API_KEYS, сохраняет действующие значения и их исходное quoting, генерирует только отсутствующие/пустые. Сохранение quoting важно для литеральных `$VARIABLE` и обратных слешей в Compose. Ошибочный синтаксис, неверный JSON и короткий имеющийся секрет вызывают отказ без перезаписи. Перед атомарной заменой проверяется точное чтение секретов обратно; исходник копируется в игнорируемый `data/env-backups/` с mode 600. Секреты не печатаются. Временные `.env.*` исключены из Git/Docker context, `.env.example` остаётся разрешённым каталогом. `python-dotenv` явно объявлен как прямая зависимость; версии пакетов в lock не обновлялись.
+
+В показанном серверном файле лишние RABBITMQ_USER/RABBITMQ_VHOST со значением spec-extraction после очистки уступят место specification из каталога настроек. Новые секреты для уже заполненных четырёх полей не создаются.
+
+Проверки окончательного кода:
+
+- Windows quality с Chromium: 131 passed, 2 skipped, 4 deselected live; Ruff check/format и 4 JS-теста пройдены. Два skip относятся к Linux shell/GNU timeout и выполнены на Linux. Прежнее предупреждение о правах pytest cache сохраняется.
+- Linux на новом production base: 131 passed, 6 deselected browser/live. Включены настоящий Node без системной установки, idempotency/backup/права 600, ошибочный/неполный `.env`, сложные пароли и отказ атомарной замены без потери исходника.
+- Production build через GHCR успешен. Native smoke под UID 10001 с read-only filesystem и network=none подтвердил PyMuPDF, psycopg/openpyxl imports и три PNG большого листа. Новые AMQP/VLM прогоны не заявляются.
+- В трёх формах искусственных паролей фактический hash значения внутри временного Compose-контейнера до/после очистки совпал: проверены доллары, кавычки и обратные слеши. Эти контейнеры запускались с network=none и удалены.
+- Текущий серверный `.env` не читался и не изменялся агентом; оператор применяет команду после pull. Реальная серверная сборка/готовность подтверждаются следующим запуском `up.sh`.
+
+Обновлены Dockerfile, CI, Windows/Linux quality scripts, защита env-артефактов, README и operations. Добавлены `app/infrastructure/environment.py`, `tests/test_environment.py`, regression для Linux Node в `tests/test_deployment.py`. Commit/push не выполнялись агентом.

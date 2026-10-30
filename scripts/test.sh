@@ -6,7 +6,9 @@ cd "$(dirname "$0")/.."
 uv sync --frozen
 uv run --frozen ruff check app tests scripts migrations
 uv run --frozen ruff format --check app tests scripts migrations
-node --test tests/frontend/state.test.js
+# Playwright уже содержит Node; отдельная установка node на сервер не требуется.
+node_binary="$(uv run --frozen python -c 'from playwright._impl._driver import compute_driver_executable; print(compute_driver_executable()[0])')"
+"$node_binary" --test tests/frontend/state.test.js
 marker='not live and not browser'
 if [[ " ${*} " == *' --browser '* ]]; then
   uv run --frozen playwright install --with-deps chromium

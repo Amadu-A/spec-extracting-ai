@@ -1,13 +1,13 @@
 # Dockerfile
 # Только приложение и PDF-парсер. Модели и broker принадлежат shared stack.
-FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
-FROM python:3.12-slim-bookworm AS builder
-COPY --from=uv /uv /usr/local/bin/uv
+# Официальный Python 3.12/Astral в GHCR: сборка не обращается к auth.docker.io.
+FROM ghcr.io/astral-sh/uv:0.12.23-python3.12-trixie-slim@sha256:28d570c06d150303b39adfa731ada20956c63fc86b1277d7ff2ad63185974092 AS base
+FROM base AS builder
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM base AS runtime
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv

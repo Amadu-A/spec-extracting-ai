@@ -222,6 +222,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Локальные документы и рабочие артефакты проверок сервиса.
+.env.*
+!.env.example
 #examples/
 .reference/
 .uv-cache/

@@ -22,13 +22,15 @@ API_KEYS='{"onec":"отдельный_ключ_не_короче_24_символ
 
 Нужны доступ к Docker того же сервера, Compose, GNU timeout/flock и уже существующая сеть `ai-shared`. Секреты shared administrator не требуются, конфигурация shared stack не редактируется. VLM не требует API key. Команды первоначального создания `.env` без перезаписи — в [docs/operations.md](docs/operations.md#первое-создание-env).
 
+Для создания или очистки `.env` выполните `uv run --frozen python -m app.operations normalize-env`: команда оставит только четыре секретных поля, сохранит действующие значения, создаст недостающие и запишет резервную копию старого файла в `data/env-backups/`.
+
 ## Развёртывание
 
 ```bash
 bash scripts/up.sh
 ```
 
-Команда собирает собственный образ, подготавливает app user/vhost, поднимает свою PostgreSQL, применяет миграции, проверяет реальный app-vhost и vision/streaming/JSON schema VLM, запускает API/worker с healthchecks. Логи видны. Общие сервисы не перезапускаются, их конфигурация и volumes не изменяются.
+Команда собирает собственный образ, подготавливает app user/vhost, поднимает свою PostgreSQL, применяет миграции, проверяет реальный app-vhost и vision/streaming/JSON schema VLM, запускает API/worker с healthchecks. Базовый Python 3.12 образ Astral закреплён digest и загружается из GHCR; сборка приложения не запрашивает Python у Docker Hub. Логи видны. Общие сервисы не перезапускаются, их конфигурация и volumes не изменяются.
 
 По умолчанию `APP_BIND=0.0.0.0`: UI и REST API публикуются на IPv4-интерфейсах сервера, порт `8083`. С другого компьютера открывайте `http://<IP_сервера>:8083`, например `http://192.168.55.3:8083`; Swagger — по тому же адресу с `/docs`. `0.0.0.0` — адрес привязки, в браузере нужен настоящий IP сервера. Порт должен быть доступен между клиентом и сервером.
 
@@ -36,14 +38,14 @@ bash scripts/up.sh
 
 ## Проверки
 
-Windows (Python 3.12, uv, Node 22+):
+Windows (Python 3.12 и uv; Node берётся из закреплённого Playwright):
 
 ```powershell
 .\ops\check-quality.ps1
 .\ops\check-quality.ps1 -Browser
 ```
 
-Linux с теми же инструментами:
+Linux с Python 3.12 и uv; системный Node не требуется:
 
 ```bash
 bash scripts/test.sh

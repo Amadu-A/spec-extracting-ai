@@ -33,6 +33,7 @@
 - app/infrastructure/__init__.py
 - app/infrastructure/broker.py
 - app/infrastructure/database.py
+- app/infrastructure/environment.py
 - app/infrastructure/excel.py
 - app/infrastructure/pdf.py
 - app/infrastructure/pdf_task.py
@@ -107,6 +108,7 @@
 - tests/test_browser.py
 - tests/test_deployment.py
 - tests/test_domain.py
+- tests/test_environment.py
 - tests/test_live_dependencies.py
 - tests/test_logging.py
 - tests/test_quality.py
