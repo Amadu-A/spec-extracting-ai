@@ -14,11 +14,11 @@ from pydantic_settings import DotEnvSettingsSource
 
 from app.core.settings import Settings
 
-SECRET_NAMES = ("database_password", "rabbitmq_password", "ui_password", "api_keys")
+SECRET_NAMES = ("database_password", "rabbitmq_password", "api_keys")
 
 
 def normalize_environment(root: Path) -> tuple[list[str], list[str], Path | None]:
-    """Оставляет четыре секретных поля, сохраняя существующие значения и создавая недостающие.
+    """Оставляет три секретных поля; удаляет устаревший UI_PASSWORD, сохраняя рабочие ключи.
 
     Считывает только .env этого проекта через источник Pydantic. Прежде чем заменить
     файл, проверяет настройки и точное чтение сериализованных секретов обратно.

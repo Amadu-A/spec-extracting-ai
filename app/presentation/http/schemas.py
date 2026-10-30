@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.models import Export, JobState, Stage, Warning
 
@@ -29,13 +29,6 @@ class PromptInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     prompt: str = Field(min_length=1, max_length=20000)
-
-
-class LoginInput(BaseModel):
-    """Пароль UI используется только для текущего сеанса и не возвращается клиенту."""
-
-    model_config = ConfigDict(extra="forbid")
-    password: SecretStr = Field(description="Пароль UI_PASSWORD из серверного .env")
 
 
 class PageStatus(BaseModel):
@@ -117,7 +110,6 @@ class WarningPage(BaseModel):
 class SessionStatus(BaseModel):
     """Метаданные browser session; cookie и prompt других клиентов не возвращаются."""
 
-    authenticated: bool
     csrf: str = Field(description="Токен X-CSRF-Token для cookie write actions")
     expires_at: datetime
 

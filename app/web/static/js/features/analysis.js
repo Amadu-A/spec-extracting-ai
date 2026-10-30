@@ -25,6 +25,7 @@ export function setupAnalysis(state, viewer, results, notify) {
   /** Обновляет только view-state; manual navigation не влияет на worker. */
   function render() {
     viewer.render(); results.render(); persist();
+    if (state.document && state.status) document.querySelector('[data-file-meta]').textContent = `${state.document.page_count} PDF-страниц · хранится до ${new Date(state.status.expires_at).toLocaleString('ru-RU')}`;
     const active = running(state.status?.status);
     document.querySelector('[data-start]').disabled = busy || active;
     document.querySelector('[data-file-choose]').disabled = busy || active;

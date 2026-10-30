@@ -9,7 +9,6 @@
   <nav class="header__exports" aria-label="Экспорт результата">
     <button class="button button--primary" data-export="json" disabled><svg class="icon"><use href="/static/icons.svg#download"/></svg>Экспорт JSON</button>
     <button class="button button--green" data-export="xlsx" disabled><svg class="icon"><use href="/static/icons.svg#sheet"/></svg>Экспорт Excel</button>
-    <button class="button button--icon" data-logout title="Завершить веб-сессию" aria-label="Выйти из веб-сессии">↪</button>
   </nav>
 </header>
 <main class="workspace">
@@ -72,11 +71,6 @@
   </div>
 </main>
 {% include "components/prompt.html" %}
-<dialog class="modal modal--small" data-login-dialog aria-labelledby="login-title"><h2 id="login-title">Вход в сервис</h2>
-  <p>Введите пароль веб-интерфейса. Документы и временный промпт изолированы в вашей сессии.</p>
-  <form data-login-form><label for="ui-password">Пароль</label><input id="ui-password" data-login-password type="password" autocomplete="current-password" required>
-    <p data-login-error role="alert" hidden></p><button class="button button--primary" type="submit">Войти</button></form>
-</dialog>
 <dialog class="modal" data-warnings-dialog aria-labelledby="warnings-title"><div class="modal__heading"><h2 id="warnings-title">Предупреждения и непроверенные строки</h2><button class="button button--icon" data-warnings-close aria-label="Закрыть предупреждения">×</button></div>
   <p>Эти строки требуют проверки по оригиналу. Они не подменяются выдуманными значениями.</p><div class="warnings" data-warnings></div><button class="button" data-warnings-more hidden>Показать ещё</button></dialog>
 {% endblock %}

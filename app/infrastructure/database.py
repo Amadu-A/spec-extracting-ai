@@ -8,7 +8,7 @@ DB I/O вынесен из event loop. Блокировка строки защ�
 import asyncio
 import threading
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -142,14 +142,6 @@ class SqlRepository:
                     raise ServiceError("queue_full", "Очередь заполнена, повторите позже", 429)
                 record = JobRecord(id=job.id, owner=job.owner, idempotency_key=job.idempotency_key)
                 self._store(db, record, job)
-                doc = db.get(DocumentRecord, job.document_id)
-                if doc:
-                    document = Document.model_validate(doc.payload)
-                    document.expires_at = max(document.expires_at, job.expires_at)
-                    doc.payload, doc.expires_at = (
-                        document.model_dump(mode="json"),
-                        document.expires_at,
-                    )
                 return job
 
         return await self._run(insert)
@@ -157,16 +149,35 @@ class SqlRepository:
     def _store(self, db: DbSession, record: JobRecord, job: Job) -> None:
         """Сохраняет события и агрегат вместе; не вызывается из HTTP/application."""
         job.updated_at = utcnow()
+        payload = job.model_dump(mode="json")
+        expiry_changed = (record.payload or {}).get("expires_at") != payload["expires_at"]
         record.state, record.lease_until, record.expires_at = (
             job.state.value,
             job.lease_until,
             job.expires_at,
         )
-        record.payload = job.model_dump(mode="json")
+        record.payload = payload
         db.add(record)
         # Между ORM-моделями нет relationship: явно создаём parent до event insert.
         # flush не делает commit, snapshot и журнал по-прежнему атомарны.
         db.flush()
+        if expiry_changed:
+            document_row = db.scalar(
+                select(DocumentRecord).where(DocumentRecord.id == job.document_id).with_for_update()
+            )
+            if document_row:
+                latest = db.scalar(
+                    select(func.max(JobRecord.expires_at)).where(
+                        JobRecord.payload["document_id"].as_string() == job.document_id
+                    )
+                )
+                latest = latest.replace(tzinfo=UTC) if latest.tzinfo is None else latest
+                document = Document.model_validate(document_row.payload)
+                document.expires_at = latest
+                document_row.expires_at, document_row.payload = (
+                    latest,
+                    document.model_dump(mode="json"),
+                )
         for journal_event in job.pending_events:
             db.add(
                 EventRecord(
@@ -277,7 +288,13 @@ class SqlRepository:
                         SessionRecord.id == token_hash, SessionRecord.expires_at > utcnow()
                     )
                 )
-                return Session.model_validate(row.payload) if row else None
+                if not row:
+                    return None
+                # Совместимость с сессиями до удаления пароля: флаг больше не даёт прав.
+                payload = {
+                    key: value for key, value in row.payload.items() if key != "authenticated"
+                }
+                return Session.model_validate(payload)
 
         return await self._run(read)
 
@@ -297,25 +314,22 @@ class SqlRepository:
 
         await self._run(save)
 
-    async def touch_session(self, token_hash: str, expires_at: datetime) -> Session | None:
-        """Продлевает только TTL под FOR UPDATE, сохраняя актуальный prompt."""
+    async def overdue_jobs(self, deadline: datetime) -> list[str]:
+        """Находит queued/running, чей бюджет истёк до начала периода хранения."""
 
-        def touch():
-            """Старый cookie не воскрешает истёкшую/отозванную сессию."""
-            with DbSession(self.engine) as db, db.begin():
-                row = db.scalar(
-                    select(SessionRecord)
-                    .where(SessionRecord.id == token_hash, SessionRecord.expires_at > utcnow())
-                    .with_for_update()
+        def read():
+            """Возвращает идентификаторы; проверка состояния повторяется use-case под lock."""
+            with DbSession(self.engine) as db:
+                return list(
+                    db.scalars(
+                        select(JobRecord.id).where(
+                            JobRecord.state.in_(["queued", "running"]),
+                            JobRecord.expires_at <= deadline,
+                        )
+                    )
                 )
-                if not row:
-                    return None
-                current = Session.model_validate(row.payload)
-                current.expires_at = expires_at
-                row.expires_at, row.payload = expires_at, current.model_dump(mode="json")
-                return current
 
-        return await self._run(touch)
+        return await self._run(read)
 
     async def delete_session(self, token_hash: str) -> None:
         """Отзывает сессию при выходе; старый cookie больше не авторизует."""
@@ -339,7 +353,14 @@ class SqlRepository:
                 db.execute(delete(SessionRecord).where(SessionRecord.expires_at <= utcnow()))
                 docs = list(
                     db.scalars(
-                        select(DocumentRecord.id).where(DocumentRecord.expires_at <= utcnow())
+                        select(DocumentRecord.id).where(
+                            DocumentRecord.expires_at <= utcnow(),
+                            DocumentRecord.id.not_in(
+                                select(JobRecord.payload["document_id"].as_string()).where(
+                                    JobRecord.expires_at > utcnow()
+                                )
+                            ),
+                        )
                     )
                 )
                 db.execute(delete(DocumentRecord).where(DocumentRecord.id.in_(docs)))

@@ -105,9 +105,8 @@ async def test_capacity_and_expiry_cleanup(root, pdf_bytes):
 
 
 async def test_read_activity_cannot_overwrite_new_session_prompt(root):
-    """Продление TTL читает свежий prompt под lock и не сохраняет старый session DTO."""
+    """Чтение сессии не меняет её фиксированный TTL и не перезаписывает свежий prompt."""
     token, session = await root.sessions.create()
-    session.authenticated = True
     await root.repository.save_session(session)
     await root.sessions.prompt(session, value="Новые инструкции")
     await asyncio.gather(*[root.sessions.resolve(token) for _ in range(10)])

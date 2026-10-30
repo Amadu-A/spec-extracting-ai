@@ -24,6 +24,7 @@ export async function copyText(value) {
 
 /** Вызывает публичный API и возвращает JSON, не скрывая машинный код ошибки. */
 export async function api(path, options = {}) {
+  if (options.method && options.method !== 'GET' && !csrf) setCsrf((await api('/session')).csrf);
   const headers = new Headers(options.headers || {});
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (options.method && options.method !== 'GET') headers.set('X-CSRF-Token', csrf);
@@ -33,7 +34,7 @@ export async function api(path, options = {}) {
     const error = new Error(payload.error?.message || `Ошибка HTTP ${response.status}`);
     error.code = payload.error?.code;
     error.reference = payload.error?.reference_id;
-    if (response.status === 401 && !path.endsWith('/login')) expired();
+    if (response.status === 401 && path !== '/session') await expired();
     throw error;
   }
   return response.json();

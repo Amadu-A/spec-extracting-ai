@@ -92,6 +92,7 @@
 - reports/golden-review.md
 - reports/implementation-report.md
 - reports/quality.md
+- reports/session-lifecycle.md
 - scripts/__init__.py
 - scripts/evaluate.py
 - scripts/test.sh
@@ -116,4 +117,5 @@
 - tests/test_operations.py
 - tests/test_quality.py
 - tests/test_recovery.py
+- tests/test_session_lifecycle.py
 - uv.lock

@@ -187,7 +187,7 @@ class Job(Contract):
     def transition(self, target: JobState) -> None:
         """Проверяет переход состояния; терминальный job запускается только через retry."""
         allowed = {
-            JobState.QUEUED: {JobState.RUNNING, JobState.CANCELLED},
+            JobState.QUEUED: {JobState.RUNNING, JobState.CANCELLED, JobState.FAILED},
             JobState.RUNNING: TERMINAL,
         }
         if target != self.state and target not in allowed.get(self.state, set()):
@@ -201,11 +201,10 @@ class Job(Contract):
 
 
 class Session(Contract):
-    """Серверная сессия по хэшу cookie с inactivity TTL и собственным CSRF token."""
+    """Анонимный владелец документов по хэшу cookie с фиксированным TTL и CSRF token."""
 
     token_hash: str
     csrf: str
-    authenticated: bool = False
     prompt: str | None = None
     expires_at: datetime
 

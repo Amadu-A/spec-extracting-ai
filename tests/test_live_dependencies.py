@@ -2,6 +2,7 @@
 """Опциональные реальные PG/AMQP/vision tests; отсутствие доступа видно как skip, не fake успех."""
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from sqlalchemy import create_engine, inspect, text
 
 from app.application.ports import PreparedPage
 from app.core.settings import Settings
+from app.domain.models import utcnow
 from app.domain.reconcile import parse_model_response
 from app.infrastructure.broker import RabbitPublisher
 from app.infrastructure.database import SqlRepository
@@ -66,6 +68,23 @@ async def test_postgresql_migrations_transactions_locks(root, pdf_bytes, request
     assert current.state.value == "completed" and len(root.model.calls) == 1
     events = await repository.events(current.id, 0, 200)
     assert [event.id for event in events] == list(range(1, current.event_seq + 1))
+    assert (await repository.document(doc.id)).expires_at == current.expires_at
+    second = await root.extractions.start("live-test", doc.id, "2", "P")
+    assert (await repository.document(doc.id)).expires_at == second.expires_at
+    await root.processor.execute(second.id)
+    finished = await repository.get(second.id)
+    assert (await repository.document(doc.id)).expires_at == max(
+        current.expires_at, finished.expires_at
+    )
+
+    def expire(job):
+        """Проверяет настоящие JSON-предикаты и FK-очистку только во временной schema."""
+        job.expires_at = utcnow() - timedelta(seconds=1)
+
+    for job in (current, finished):
+        await repository.edit(job.id, expire)
+    assert await repository.cleanup() == [doc.id]
+    assert await repository.get(current.id) is None and await repository.get(second.id) is None
     repository.engine.dispose()
     with admin_engine.begin() as connection:
         connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))

@@ -52,14 +52,19 @@ class Settings(BaseSettings):
     max_stream_chars: int = Field(2_000_000, ge=10000, le=10_000_000)
     max_events: int = Field(100000, ge=1000)
     max_items: int = Field(20000, ge=100, le=100000)
-    retention_hours: int = Field(24, ge=1, le=720)
-    session_ttl_minutes: int = Field(60, ge=1, le=1440)
+    retention_seconds: int = Field(3600, ge=60, le=86400)
+    job_timeout_seconds: int = Field(3600, ge=30, le=14400)
+    cleanup_interval_seconds: int = Field(15, ge=1, le=60)
     cookie_secure: bool = False
     trusted_proxy_hosts: list[str] = Field(default_factory=list)
-    ui_password: SecretStr = SecretStr("")
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
     rate_limit_per_minute: int = Field(120, ge=10)
     log_level: str = "INFO"
+
+    @property
+    def session_ttl_seconds(self) -> int:
+        """Ограничивает cookie обработкой, хранением результата и часовым запасом, как в эталоне."""
+        return self.job_timeout_seconds + self.retention_seconds + 3600
 
     @property
     def database_url(self) -> str:
@@ -81,7 +86,7 @@ class Settings(BaseSettings):
 
     def require_secrets(self) -> None:
         """Останавливает production entrypoint до запуска при пустых секретах."""
-        for name in ("database_password", "rabbitmq_password", "ui_password"):
+        for name in ("database_password", "rabbitmq_password"):
             if len(getattr(self, name).get_secret_value()) < 12:
                 raise ValueError(f"Секрет {name} должен содержать не менее 12 символов")
         if any(len(key.get_secret_value()) < 24 for key in self.api_keys.values()):

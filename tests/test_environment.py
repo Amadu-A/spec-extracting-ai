@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic_settings import DotEnvSettingsSource
 
 from app import operations
 from app.core.settings import Settings
@@ -42,18 +43,22 @@ def secret_file(root, extra=""):
 
 
 def test_normalize_keeps_existing_values_and_backup(environment_root):
-    """Убирает два несекретных поля, сохраняя все значения и точную резервную копию."""
+    """Убирает открытые поля и старый UI_PASSWORD, сохраняя рабочие секреты и точный backup."""
     path = secret_file(environment_root)
     before = path.read_bytes()
-    old = Settings(_env_file=path)
+    stored = DotEnvSettingsSource(Settings, env_file=path)()
+    old = Settings(
+        _env_file=None,
+        **{name: stored[name] for name in ("database_password", "rabbitmq_password", "api_keys")},
+    )
     removed, generated, backup = normalize_environment(environment_root)
     new = Settings(_env_file=(environment_root / ".env.example", path))
-    assert removed == ["RABBITMQ_USER", "RABBITMQ_VHOST"] and not generated
+    assert removed == ["RABBITMQ_USER", "RABBITMQ_VHOST", "UI_PASSWORD"] and not generated
     assert backup.read_bytes() == before
-    for name in ("database_password", "rabbitmq_password", "ui_password", "api_keys"):
+    for name in ("database_password", "rabbitmq_password", "api_keys"):
         assert getattr(new, name) == getattr(old, name)
     assert new.rabbitmq_user == new.rabbitmq_vhost == "specification"
-    assert len(path.read_text().splitlines()) == 4
+    assert len(path.read_text().splitlines()) == 3
     if os.name != "nt":
         assert path.stat().st_mode & 0o777 == backup.stat().st_mode & 0o777 == 0o600
     normalized = path.read_bytes()
@@ -67,7 +72,7 @@ def test_normalize_generates_only_missing_values(environment_root):
     path = environment_root / ".env"
     path.write_text("DATABASE_PASSWORD=existing-database-password\n", encoding="utf-8")
     _, generated, _ = normalize_environment(environment_root)
-    assert generated == ["RABBITMQ_PASSWORD", "UI_PASSWORD", "API_KEYS"]
+    assert generated == ["RABBITMQ_PASSWORD", "API_KEYS"]
     settings = Settings(_env_file=path)
     settings.require_secrets()
     assert settings.database_password.get_secret_value() == "existing-database-password"
@@ -77,12 +82,13 @@ def test_normalize_generates_only_missing_values(environment_root):
 def test_normalize_creates_absent_file(environment_root):
     """Создаёт корректный приватный .env, если файл ещё отсутствует."""
     _, generated, backup = normalize_environment(environment_root)
-    assert len(generated) == 4 and backup is None
+    assert len(generated) == 3 and backup is None
     Settings(_env_file=environment_root / ".env").require_secrets()
 
 
 @pytest.mark.parametrize(
-    "invalid", ["API_KEYS='invalid-json'", "UI_PASSWORD=short", "UI_PASSWORD='unterminated"]
+    "invalid",
+    ["API_KEYS='invalid-json'", "DATABASE_PASSWORD=short", "DATABASE_PASSWORD='unterminated"],
 )
 def test_invalid_secret_is_not_rotated_or_disclosed(environment_root, invalid, monkeypatch, capsys):
     """Некорректный существующий секрет требует исправления и не подменяется случайным."""
@@ -135,7 +141,7 @@ def test_quotes_unicode_and_dollar_are_data(environment_root):
     """Сохраняет сложный пароль и не исполняет shell-фрагмент из постороннего поля."""
     path = secret_file(environment_root, "UNUSED=$(touch marker-created)\n")
     special = "сложный-'\\\"-$()-secret "
-    literal = "UI_PASSWORD='literal-$UNSET_VARIABLE-secret'"
+    literal = "DATABASE_PASSWORD='literal-$UNSET_VARIABLE-secret'"
     with path.open("a", encoding="utf-8") as stream:
         stream.write("RABBITMQ_PASSWORD=" + json.dumps(special, ensure_ascii=False) + "\n")
         stream.write(literal + "\n")

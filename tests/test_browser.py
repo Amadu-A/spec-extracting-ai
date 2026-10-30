@@ -17,7 +17,6 @@ import pytest
 import uvicorn
 
 from app.presentation.http.app import create_app
-from tests.conftest import PASSWORD
 
 
 @pytest.fixture
@@ -76,10 +75,7 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server):
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(web_server)
-        expect(page.locator("[data-login-dialog]")).to_be_visible()
-        page.locator("[data-login-password]").fill(PASSWORD)
-        page.get_by_role("button", name="Войти", exact=True).click()
-        expect(page.locator("[data-login-dialog]")).not_to_be_visible()
+        expect(page.locator("[data-login-dialog]")).to_have_count(0)
         page.locator("[data-prompt-open]").click()
         expect(page.locator("[data-prompt-dialog]")).to_be_visible()
         prompt = page.locator("[data-prompt-text]")
@@ -179,6 +175,44 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server):
 
 
 @pytest.mark.browser
+def test_expired_cookie_recovers_without_login_window(root, pdf_bytes, web_server):
+    """Потеря cookie очищает прежний PDF, автоматически создаёт сессию и позволяет новую загрузку."""
+    from playwright.sync_api import expect, sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(executable_path=playwright.chromium.executable_path)
+        context = browser.new_context()
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(web_server)
+        expect(
+            page.locator("input[type=password], [data-login-dialog], [data-logout]")
+        ).to_have_count(0)
+        with page.expect_response("**/api/v1/documents") as uploaded:
+            page.locator("[data-file]").set_input_files(
+                {"name": "private.pdf", "mimeType": "application/pdf", "buffer": pdf_bytes}
+            )
+        assert uploaded.value.status == 201
+        identifier = uploaded.value.json()["id"]
+        expect(page.locator("[data-page-image]")).to_be_visible()
+        context.clear_cookies()
+        page.locator("[data-prompt-open]").click()
+        expect(page.locator("[data-file-meta]")).to_contain_text("Сессия обновлена")
+        expect(page.locator("[data-page-image]")).not_to_be_visible()
+        expect(page.locator("dialog[open]")).to_have_count(0)
+        assert any(cookie["name"] == "spec_session" for cookie in context.cookies())
+        assert page.request.get(f"{web_server}/api/v1/documents/{identifier}").status == 404
+        page.locator("[data-file]").set_input_files(
+            {"name": "new.pdf", "mimeType": "application/pdf", "buffer": pdf_bytes}
+        )
+        expect(page.locator("[data-page-image]")).to_be_visible()
+        expect(page.locator("[data-file-name]")).to_have_text("new.pdf")
+        assert not errors
+        browser.close()
+
+
+@pytest.mark.browser
 def test_browser_manual_view_until_next_vlm_page_and_refresh(root, pdf_bytes, web_server):
     """Настоящий SSE не отбирает просмотр на токенах/reconnect, новый page_started переключает."""
     from playwright.sync_api import expect, sync_playwright
@@ -188,9 +222,7 @@ def test_browser_manual_view_until_next_vlm_page_and_refresh(root, pdf_bytes, we
         browser = playwright.chromium.launch(executable_path=playwright.chromium.executable_path)
         page = browser.new_page(viewport={"width": 1672, "height": 941})
         page.goto(web_server)
-        page.locator("[data-login-password]").fill(PASSWORD)
-        page.get_by_role("button", name="Войти", exact=True).click()
-        expect(page.locator("[data-login-dialog]")).not_to_be_visible()
+        expect(page.locator("[data-login-dialog]")).to_have_count(0)
         page.locator("[data-file]").set_input_files(
             {"name": "view.pdf", "mimeType": "application/pdf", "buffer": pdf_bytes}
         )
@@ -241,9 +273,7 @@ def test_real_pdf_vlm_ui_json_excel(root, web_server, tmp_path, request):
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(web_server)
-        page.locator("[data-login-password]").fill(PASSWORD)
-        page.get_by_role("button", name="Войти", exact=True).click()
-        expect(page.locator("[data-login-dialog]")).not_to_be_visible()
+        expect(page.locator("[data-login-dialog]")).to_have_count(0)
         page.locator("[data-file]").set_input_files(str(source.resolve()))
         expect(page.locator("[data-page-image]")).to_be_visible()
         page.locator("[data-pages]").fill("1")

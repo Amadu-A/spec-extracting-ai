@@ -46,7 +46,9 @@ class ExtractionProcessor:
 
         def claim(job: Job) -> None:
             """Атомарно защищает job от конкурирующих/повторных deliveries."""
-            if job.state in TERMINAL or job.expires_at <= utcnow():
+            if job.state in TERMINAL or job.expires_at <= utcnow() + timedelta(
+                seconds=self.settings.retention_seconds
+            ):
                 raise LeaseLost
             if job.state == JobState.RUNNING and job.lease_until and job.lease_until > utcnow():
                 raise LeaseLost
@@ -58,18 +60,21 @@ class ExtractionProcessor:
             job.emit("job_started", recovered=job.current_pdf_page is not None)
 
         try:
-            await self.repository.edit(job_id, claim)
+            claimed = await self.repository.edit(job_id, claim)
         except (LeaseLost, ServiceError):
             return
         work = asyncio.create_task(self._process(job_id, lease))
         heartbeat = asyncio.create_task(self._heartbeat(job_id, lease))
+        budget = (claimed.expires_at - utcnow()).total_seconds() - self.settings.retention_seconds
+        deadline = asyncio.timeout(max(0, budget))
         try:
-            await asyncio.wait({work, heartbeat}, return_when=asyncio.FIRST_COMPLETED)
-            if work.done():
-                await work
-            else:
-                await heartbeat
-                raise LeaseLost
+            async with deadline:
+                await asyncio.wait({work, heartbeat}, return_when=asyncio.FIRST_COMPLETED)
+                if work.done():
+                    await work
+                else:
+                    await heartbeat
+                    raise LeaseLost
         except JobCancelled:
             await self._finish(job_id, lease, JobState.CANCELLED)
         except LeaseLost:
@@ -81,8 +86,10 @@ class ExtractionProcessor:
                 job_id,
                 lease,
                 JobState.FAILED,
-                "vlm_timeout",
-                "Превышено полное время обработки страницы",
+                "job_timeout" if deadline.expired() else "vlm_timeout",
+                "Превышено время обработки задания"
+                if deadline.expired()
+                else "Превышено полное время обработки страницы",
             )
         except asyncio.CancelledError:
             # При остановке процесса lease истечёт, а AMQP delivery вернётся в очередь.
@@ -393,6 +400,7 @@ class ExtractionProcessor:
                         if stage.state == "running":
                             stage.state = "interrupted"
             job.transition(target)
+            job.expires_at = utcnow() + timedelta(seconds=self.settings.retention_seconds)
             job.error_code = code if target == JobState.FAILED else None
             job.lease_token, job.lease_until = None, None
             event = (

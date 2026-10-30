@@ -57,7 +57,7 @@ class ExtractionService:
                 page_count=info["page_count"],
                 sha256=digest,
                 suggested_project_code=info.get("suggested_project_code"),
-                expires_at=utcnow() + timedelta(hours=self.settings.retention_hours),
+                expires_at=utcnow() + timedelta(seconds=self.settings.retention_seconds),
             )
             await self.repository.save_document(document)
             return document
@@ -120,7 +120,10 @@ class ExtractionService:
             fingerprint=fingerprint,
             idempotency_key=idempotency_key,
             pages=[PageAnalysis(pdf_page=p) for p in selected],
-            expires_at=utcnow() + timedelta(hours=self.settings.retention_hours),
+            expires_at=utcnow()
+            + timedelta(
+                seconds=self.settings.job_timeout_seconds + self.settings.retention_seconds
+            ),
         )
         job.emit("job_queued", selected_pdf_pages=selected)
         return await self.repository.create(job, self.settings.max_queued_jobs)
@@ -192,6 +195,7 @@ class ExtractionService:
             job.cancel_requested = True
             if job.state == JobState.QUEUED:
                 job.transition(JobState.CANCELLED)
+                job.expires_at = utcnow() + timedelta(seconds=self.settings.retention_seconds)
                 job.emit("job_cancelled")
             else:
                 job.emit("cancellation_requested")
@@ -222,10 +226,42 @@ class ExtractionService:
             job.revision += 1
             job.state, job.cancel_requested, job.current_pdf_page = JobState.QUEUED, False, None
             job.lease_token, job.lease_until, job.error_code = None, None, None
+            job.expires_at = utcnow() + timedelta(
+                seconds=self.settings.job_timeout_seconds + self.settings.retention_seconds
+            )
             job.emit("result_invalidated", from_pdf_page=job.pages[index].pdf_page)
             job.emit("job_queued", selected_pdf_pages=job.selected_pdf_pages)
 
         return await self.repository.edit(job_id, change)
+
+    async def purge_expired(self) -> None:
+        """Завершает просроченные задания и удаляет истёкшие данные независимо от браузера."""
+        now = utcnow()
+        retention = timedelta(seconds=self.settings.retention_seconds)
+        for job_id in await self.repository.overdue_jobs(now + retention):
+
+            def fail(job: Job) -> None:
+                """Повторно проверяет deadline под lock и отзывает lease старого worker."""
+                if job.state in TERMINAL or job.expires_at - retention > now:
+                    return
+                job.transition(JobState.FAILED)
+                job.error_code = "job_timeout"
+                job.lease_token, job.lease_until = None, None
+                job.expires_at = now + retention
+                for page in job.pages:
+                    if page.state == "running":
+                        page.state = "failed"
+                    for stage in page.stages:
+                        if stage.state == "running":
+                            stage.state = "interrupted"
+                job.emit("job_failed", status="failed", error_code="job_timeout")
+
+            await self.repository.edit(job_id, fail)
+        for document_id in await self.repository.cleanup():
+            await self.storage.delete(document_id)
+        await self.storage.cleanup_orphans(
+            self.repository.document, now.timestamp() - self.settings.retention_seconds
+        )
 
     async def preview(self, document_id: str, owner: str, page: int, width: int) -> bytes:
         """Проверяет owner/TTL даже при попадании изображения в кэш адаптера."""

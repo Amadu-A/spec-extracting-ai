@@ -23,7 +23,6 @@ from app.presentation.http.app import create_app
 
 KEY_A = "test-alpha-key-for-offline-checks-only"
 KEY_B = "test-beta-key-for-offline-checks-only"
-PASSWORD = "test-ui-password-only"
 
 
 def pytest_addoption(parser):
@@ -122,7 +121,6 @@ def root(tmp_path) -> Container:
     settings = Settings(
         _env_file=None,
         data_directory=tmp_path / "files",
-        ui_password=PASSWORD,
         api_keys={"alpha": KEY_A, "beta": KEY_B},
         vlm_attempts=1,
         heartbeat_seconds=1,

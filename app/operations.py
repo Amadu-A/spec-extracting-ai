@@ -74,7 +74,7 @@ def normalize_env() -> int:
     except (ValidationError, SettingsError, ValueError, OSError):
         print(".env не изменён: проверьте формат, длину секретов и права доступа", file=sys.stderr)
         return 2
-    print(".env: DATABASE_PASSWORD, RABBITMQ_PASSWORD, UI_PASSWORD, API_KEYS; права 600")
+    print(".env: DATABASE_PASSWORD, RABBITMQ_PASSWORD, API_KEYS; права 600")
     if removed:
         print("Удалены несекретные поля: " + ", ".join(removed))
     if generated:

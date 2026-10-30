@@ -1,5 +1,5 @@
 # app/application/sessions.py
-"""Сессионные prompt и аутентификация UI; внешние API-клиенты от них независимы."""
+"""Анонимные browser capability и сессионные prompt; вход пользователя не требуется."""
 
 import hashlib
 import secrets
@@ -18,50 +18,33 @@ def token_hash(token: str) -> str:
 
 
 class SessionService:
-    """Серверное TTL-хранилище с prompt, ограниченным конкретным cookie."""
+    """Серверное хранилище анонимного владельца с фиксированным сроком cookie."""
 
     def __init__(self, repository: JobRepository, settings: Settings, default_prompt: str):
         """Принимает порт репозитория и стандартный версионированный ресурс."""
         self.repository, self.settings, self.default_prompt = repository, settings, default_prompt
 
     async def create(self) -> tuple[str, Session]:
-        """Создаёт неаутентифицированную сессию; cookie не имеет постоянного Max-Age."""
+        """Создаёт случайный capability без пароля; в БД сохраняется только его хэш."""
         token = secrets.token_urlsafe(48)
         session = Session(
             token_hash=token_hash(token),
             csrf=secrets.token_urlsafe(32),
-            expires_at=utcnow() + timedelta(minutes=self.settings.session_ttl_minutes),
+            expires_at=utcnow() + timedelta(seconds=self.settings.session_ttl_seconds),
         )
         await self.repository.save_session(session)
         return token, session
 
-    async def resolve(self, token: str | None, authenticated: bool = True) -> Session:
-        """Продлевает inactivity TTL; неизвестная/истёкшая сессия требует входа."""
+    async def resolve(self, token: str | None) -> Session:
+        """Проверяет capability без продления TTL; истёкшая сессия создаётся заново через API."""
         session = (
-            await self.repository.touch_session(
-                token_hash(token), utcnow() + timedelta(minutes=self.settings.session_ttl_minutes)
-            )
-            if token and len(token) < 200
-            else None
+            await self.repository.session(token_hash(token)) if token and len(token) < 200 else None
         )
-        if not session or (authenticated and not session.authenticated):
+        if not session:
             raise ServiceError(
-                "session_expired", "Войдите в веб-сессию; временный промпт сброшен", 401
+                "session_expired", "Веб-сессия истекла; загрузите документ повторно", 401
             )
         return session
-
-    @timed("web_login")
-    async def login(self, token: str, password: str) -> tuple[str, Session]:
-        """Проверяет пароль и ротирует session id против fixation."""
-        old = await self.resolve(token, authenticated=False)
-        expected = self.settings.ui_password.get_secret_value()
-        if not expected or not secrets.compare_digest(token_hash(password), token_hash(expected)):
-            raise ServiceError("invalid_credentials", "Неверный пароль", 401)
-        await self.repository.delete_session(old.token_hash)
-        new_token, session = await self.create()
-        session.authenticated = True
-        await self.repository.save_session(session)
-        return new_token, session
 
     @timed("manage_session_prompt")
     async def prompt(

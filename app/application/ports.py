@@ -1,7 +1,7 @@
 # app/application/ports.py
 """Минимальные заменяемые интерфейсы хранения, PDF, очереди и VLM."""
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
@@ -55,12 +55,12 @@ class JobRepository(Protocol):
         """Читает серверную сессию по необратимому хэшу cookie."""
         ...
 
-    async def touch_session(self, token_hash: str, expires_at: datetime) -> Session | None:
-        """Атомарно продлевает TTL, не перезаписывая параллельно изменённый prompt."""
+    async def overdue_jobs(self, deadline: datetime) -> list[str]:
+        """Возвращает активные задания с истёкшим бюджетом выполнения для финализации."""
         ...
 
     async def save_session(self, session: Session) -> None:
-        """Атомарно сохраняет prompt и inactivity TTL одной сессии."""
+        """Атомарно сохраняет prompt и фиксированный срок одной сессии."""
         ...
 
     async def delete_session(self, token_hash: str) -> None:
@@ -89,6 +89,12 @@ class FileStorage(Protocol):
 
     async def delete(self, document_id: str) -> None:
         """Удаляет только файлы указанного UUID внутри корня приложения."""
+        ...
+
+    async def cleanup_orphans(
+        self, exists: Callable[[str], Awaitable[Document | None]], older_than: float
+    ) -> None:
+        """Удаляет старые файлы без метаданных после сбоя загрузки или очистки."""
         ...
 
 

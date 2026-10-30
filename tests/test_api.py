@@ -12,7 +12,7 @@ from openpyxl import load_workbook
 
 from app.domain.errors import ServiceError
 from app.domain.models import JobState, utcnow
-from tests.conftest import KEY_A, KEY_B, PASSWORD
+from tests.conftest import KEY_A, KEY_B
 
 HEADERS = {"X-API-Key": KEY_A}
 
@@ -164,18 +164,8 @@ async def test_model_failure_is_not_empty_success(root, client, pdf_bytes, failu
 
 async def test_prompt_snapshot_api_isolation_csrf_ttl(root, client, pdf_bytes):
     """UI prompt влияет только на новые задания текущей сессии; API всегда получает default."""
-    session = (await client.get("/api/v1/session")).json()
-    login = await client.post(
-        "/api/v1/session/login",
-        headers={"X-CSRF-Token": session["csrf"]},
-        json={"password": PASSWORD},
-    )
-    assert login.status_code == 200
-    assert (
-        "httponly" in login.headers["set-cookie"].lower()
-        and "max-age" not in login.headers["set-cookie"].lower()
-    )
-    csrf = {"X-CSRF-Token": login.json()["csrf"]}
+    session = await client.get("/api/v1/session")
+    csrf = {"X-CSRF-Token": session.json()["csrf"]}
     denied = await client.put("/api/v1/session/prompt", json={"prompt": "Custom"})
     assert denied.status_code == 403
     denied = await client.put(

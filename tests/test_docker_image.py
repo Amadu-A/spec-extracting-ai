@@ -70,7 +70,7 @@ def test_real_image_reads_restricted_sources_as_non_root(request, tmp_path):
     archive = tmp_path / "context.tar.gz"
     restricted_context(archive)
     environment = dict(os.environ)
-    for name in ("DATABASE_PASSWORD", "RABBITMQ_PASSWORD", "UI_PASSWORD"):
+    for name in ("DATABASE_PASSWORD", "RABBITMQ_PASSWORD"):
         environment[name] = "offline-image-test-password-only"
     environment["API_KEYS"] = json.dumps({"image-test": "offline-image-key-at-least-24-characters"})
     try:
@@ -110,7 +110,7 @@ print(json.dumps({'uid':os.getuid(),'python_modules':count,'operations_import':'
             "--tmpfs",
             "/tmp:mode=1777",
         ]
-        for name in ("DATABASE_PASSWORD", "RABBITMQ_PASSWORD", "UI_PASSWORD", "API_KEYS"):
+        for name in ("DATABASE_PASSWORD", "RABBITMQ_PASSWORD", "API_KEYS"):
             command += ["--env", name]
         result = subprocess.run(
             command + [image, "python", "-c", probe],

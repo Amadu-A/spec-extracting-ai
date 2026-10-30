@@ -20,7 +20,6 @@ def bootstrap_settings(**overrides):
     values = {
         "database_password": "offline-database-password",
         "rabbitmq_password": PASSWORD,
-        "ui_password": "offline-interface-password",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -65,7 +64,6 @@ def test_password_transport_keeps_special_characters(monkeypatch, capsys):
         {"rabbitmq_password": "private-secret\0next-line"},
         {"rabbitmq_password": "я" * 513},
         {"rabbitmq_password": "short"},
-        {"ui_password": ""},
         {"database_password": ""},
     ],
 )
@@ -96,7 +94,7 @@ def test_settings_parse_error_does_not_expose_dotenv(invalid, tmp_path, monkeypa
 
 
 def test_documented_env_initialization_and_repeat(tmp_path, monkeypatch):
-    """Исполняет команды из документации: шесть независимых секретов и запрет перезаписи .env."""
+    """Исполняет команды из документации: пять независимых секретов и запрет перезаписи .env."""
     root = Path(__file__).resolve().parents[1]
     git_bash = Path("C:/Program Files/Git/bin/bash.exe")
     bash = str(git_bash) if git_bash.exists() else shutil.which("bash")
@@ -116,7 +114,7 @@ def test_documented_env_initialization_and_repeat(tmp_path, monkeypatch):
     private = tmp_path / ".env"
     original = private.read_bytes()
     names = {line.split("=", 1)[0] for line in original.decode().splitlines()}
-    assert names == {"DATABASE_PASSWORD", "RABBITMQ_PASSWORD", "UI_PASSWORD", "API_KEYS"}
+    assert names == {"DATABASE_PASSWORD", "RABBITMQ_PASSWORD", "API_KEYS"}
     for name in names:
         monkeypatch.delenv(name, raising=False)
     settings = Settings(_env_file=(root / ".env.example", private))
@@ -124,10 +122,9 @@ def test_documented_env_initialization_and_repeat(tmp_path, monkeypatch):
     values = [
         settings.database_password,
         settings.rabbitmq_password,
-        settings.ui_password,
         *settings.api_keys.values(),
     ]
-    assert len({value.get_secret_value() for value in values}) == 6
+    assert len({value.get_secret_value() for value in values}) == 5
     assert set(settings.api_keys) == {"onec", "telegram", "evaluation"}
     if os.name != "nt":
         assert private.stat().st_mode & 0o777 == 0o600

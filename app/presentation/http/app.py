@@ -18,7 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.bootstrap import build_container
 from app.core.observability import configure_logging
 from app.domain.errors import ServiceError
-from app.presentation.http.routes import router
+from app.presentation.http.routes import router, session_info
 
 
 class PerimeterMiddleware:
@@ -38,7 +38,7 @@ class PerimeterMiddleware:
         scope.setdefault("state", {})["reference_id"] = reference
         headers = dict(scope.get("headers", []))
         ip = scope.get("client", ("unknown",))[0]
-        key = (ip, scope["path"].endswith("/session/login"))
+        key = ip
         now = monotonic()
         count, started = self.buckets.get(key, (0, now))
         if now - started >= 60:
@@ -47,7 +47,7 @@ class PerimeterMiddleware:
         self.buckets.move_to_end(key)
         while len(self.buckets) > 10000:
             self.buckets.popitem(last=False)
-        if count >= (8 if key[1] else self.rate):
+        if count >= self.rate:
             await self._error(
                 scope, receive, send, 429, "rate_limit", "Слишком много запросов", reference
             )
@@ -146,9 +146,11 @@ def create_app(dependencies=None) -> FastAPI:
     @application.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index(request: Request):
         """Отдаёт оболочку; документы/прогресс загружаются тем же защищённым API."""
-        return templates.TemplateResponse(
+        response = templates.TemplateResponse(
             request=request, name="analysis.html", context={"max_upload_mb": settings.max_upload_mb}
         )
+        await session_info(request, response)
+        return response
 
     @application.get("/docs", response_class=HTMLResponse, include_in_schema=False)
     async def api_docs(request: Request):

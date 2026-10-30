@@ -13,12 +13,11 @@ from fastapi.responses import StreamingResponse
 
 from app.domain.errors import ServiceError
 from app.domain.models import TERMINAL, Export
-from app.presentation.http.auth import COOKIE, Principal, check_csrf, container, principal
+from app.presentation.http.auth import COOKIE, Principal, container, principal
 from app.presentation.http.schemas import (
     DocumentStatus,
     ErrorResponse,
     ExtractionStatus,
-    LoginInput,
     PromptInput,
     PromptStatus,
     ReadyStatus,
@@ -57,43 +56,30 @@ PNG_RESPONSE = {
 }
 
 
-def set_cookie(response: Response, token: str, secure: bool) -> None:
-    """Session-only cookie без persistent Max-Age, недоступный JavaScript."""
-    response.set_cookie(COOKIE, token, httponly=True, secure=secure, samesite="strict", path="/")
+def set_cookie(response: Response, token: str, secure: bool, max_age: int) -> None:
+    """Выдаёт случайный HttpOnly capability с фиксированным Max-Age и SameSite=Strict."""
+    response.set_cookie(
+        COOKIE, token, httponly=True, secure=secure, samesite="strict", path="/", max_age=max_age
+    )
 
 
 @router.get("/session", tags=["Web-сессия"], response_model=SessionStatus)
 async def session_info(request: Request, response: Response) -> dict:
-    """Создаёт/возвращает browser session; prompt и документы требуют входа."""
+    """Автоматически создаёт анонимную сессию; prompt и документы изолированы cookie."""
     dependencies = container(request)
     try:
-        session = await dependencies.sessions.resolve(
-            request.cookies.get(COOKIE), authenticated=False
-        )
+        session = await dependencies.sessions.resolve(request.cookies.get(COOKIE))
     except ServiceError:
         token, session = await dependencies.sessions.create()
-        set_cookie(response, token, dependencies.settings.cookie_secure)
+        set_cookie(
+            response,
+            token,
+            dependencies.settings.cookie_secure,
+            dependencies.settings.session_ttl_seconds,
+        )
     return {
-        "authenticated": session.authenticated,
         "csrf": session.csrf,
         "expires_at": session.expires_at.isoformat(),
-    }
-
-
-@router.post("/session/login", tags=["Web-сессия"], response_model=SessionStatus)
-async def login(body: LoginInput, request: Request, response: Response) -> dict:
-    """Авторизует UI и ротирует cookie; интеграции используют отдельные API_KEYS."""
-    dependencies = container(request)
-    session = await dependencies.sessions.resolve(request.cookies.get(COOKIE), authenticated=False)
-    check_csrf(request, session)
-    token, authenticated = await dependencies.sessions.login(
-        request.cookies[COOKIE], body.password.get_secret_value()
-    )
-    set_cookie(response, token, dependencies.settings.cookie_secure)
-    return {
-        "authenticated": True,
-        "csrf": authenticated.csrf,
-        "expires_at": authenticated.expires_at.isoformat(),
     }
 
 

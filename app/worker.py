@@ -12,9 +12,8 @@ from app.core.observability import configure_logging
 
 
 async def maintenance(container) -> None:
-    """Переотправляет потерянные queued/stale jobs и удаляет данные по TTL."""
+    """Переотправляет потерянные queued/stale jobs и обновляет heartbeat worker."""
     dispatched: dict[str, float] = {}
-    iteration = 0
     while True:
         try:
             await asyncio.to_thread(
@@ -29,14 +28,6 @@ async def maintenance(container) -> None:
                     await container.broker.publish(job_id)
                     dispatched[job_id] = time()
             dispatched = {key: stamp for key, stamp in dispatched.items() if time() - stamp < 300}
-            if iteration % 6 == 0:
-                for document_id in await container.repository.cleanup():
-                    await container.storage.delete(document_id)
-                await container.storage.cleanup_orphans(
-                    container.repository.document,
-                    time() - container.settings.retention_hours * 3600,
-                )
-            iteration += 1
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -44,11 +35,24 @@ async def maintenance(container) -> None:
         await asyncio.sleep(10)
 
 
+async def cleanup(container) -> None:
+    """Удаляет истёкшие документы и сессии отдельным циклом, по умолчанию каждые 15 секунд."""
+    while True:
+        try:
+            await container.extractions.purge_expired()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.getLogger(__name__).warning("worker_cleanup_retry")
+        await asyncio.sleep(container.settings.cleanup_interval_seconds)
+
+
 async def run() -> None:
     """Подключает существующий broker; ack выполняется после durable terminal/checkpoint."""
     container = build_container()
     configure_logging(container.settings.log_level)
     maintenance_task = asyncio.create_task(maintenance(container))
+    cleanup_task = asyncio.create_task(cleanup(container))
     slots = asyncio.Semaphore(container.settings.worker_concurrency)
     active: set[asyncio.Task] = set()
 
@@ -78,11 +82,14 @@ async def run() -> None:
                 await asyncio.sleep(5)
     finally:
         maintenance_task.cancel()
+        cleanup_task.cancel()
         for task in active:
             task.cancel()
         await asyncio.gather(*active, return_exceptions=True)
         with contextlib.suppress(asyncio.CancelledError):
             await maintenance_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await cleanup_task
         await container.broker.close()
         await container.model.close()
 
