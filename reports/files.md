@@ -102,8 +102,10 @@
 - tests/test_adapters.py
 - tests/test_api.py
 - tests/test_architecture.py
+- tests/test_bootstrap_settings.py
 - tests/test_broker_contract.py
 - tests/test_browser.py
+- tests/test_deployment.py
 - tests/test_domain.py
 - tests/test_live_dependencies.py
 - tests/test_logging.py

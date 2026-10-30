@@ -1,17 +1,63 @@
 # app/operations.py
-"""Операторские проверки: реальные зависимости, vision/schema и heartbeat worker."""
+"""Операторские проверки и закрытый протокол настроек RabbitMQ для scripts/up.sh."""
 
 import argparse
 import asyncio
+import re
 import sys
 from time import time
 
 import httpx
+from pydantic import ValidationError
+from pydantic_settings import SettingsError
 
 from app.application.ports import PreparedPage
 from app.bootstrap import build_container
 from app.core.settings import Settings
 from app.domain.reconcile import parse_model_response
+
+
+def broker_bootstrap_values(settings: Settings) -> tuple[str, str, str, str, str]:
+    """Проверяет закрытый протокол up.sh; четвёртая строка содержит секрет.
+
+    Bash захватывает stdout в память и передаёт пароль через stdin существующему
+    RabbitMQ. Значения dotenv не исполняются и не попадают в журнал запуска.
+    """
+    settings.require_secrets()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", settings.rabbitmq_container):
+        raise ValueError("RABBITMQ_CONTAINER: укажите имя существующего контейнера RabbitMQ")
+    for name, value in (
+        ("RABBITMQ_USER", settings.rabbitmq_user),
+        ("RABBITMQ_VHOST", settings.rabbitmq_vhost),
+    ):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", value):
+            raise ValueError(f"{name}: требуется отдельное имя из букв, цифр, точки, дефиса или _")
+    if settings.rabbitmq_user.lower() in {"guest", "admin", "administrator", "shared_admin"}:
+        raise ValueError("RabbitMQ: нужен отдельный пользователь приложения без служебных прав")
+    password = settings.rabbitmq_password.get_secret_value()
+    if len(password.encode("utf-8")) > 1024 or any(char in password for char in "\r\n\0"):
+        raise ValueError("RABBITMQ_PASSWORD: требуется однострочный секрет длиной до 1024 байт")
+    return (
+        settings.rabbitmq_container,
+        settings.rabbitmq_user,
+        settings.rabbitmq_vhost,
+        password,
+        str(settings.rabbitmq_cli_timeout_seconds),
+    )
+
+
+def broker_config() -> int:
+    """Передаёт секретный протокол только up.sh; ошибки не раскрывают значения настроек."""
+    try:
+        values = broker_bootstrap_values(Settings())
+    except (ValidationError, SettingsError):
+        print("Некорректные настройки: проверьте .env.example, .env и окружение", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    sys.stdout.write("\n".join(values) + "\n")
+    return 0
 
 
 async def preflight(vision: bool) -> int:
@@ -54,12 +100,15 @@ async def preflight(vision: bool) -> int:
 
 
 def main() -> int:
-    """Исполняет конечные проверки без логирования настроек/секретов."""
+    """Исполняет проверки; broker-config отдаёт секретный stdout только родительскому up.sh."""
     parser = argparse.ArgumentParser(description="Проверки сервиса спецификаций")
     parser.add_argument(
-        "operation", choices=("config", "preflight", "vision", "ready", "worker-health")
+        "operation",
+        choices=("config", "broker-config", "preflight", "vision", "ready", "worker-health"),
     )
     arguments = parser.parse_args()
+    if arguments.operation == "broker-config":
+        return broker_config()
     settings = Settings()
     if arguments.operation == "config":
         settings.require_secrets()

@@ -3,14 +3,49 @@
 
 ## Предпосылки
 
-На сервере должны работать Docker/Compose, сеть `ai-shared`, shared-vlm и существующий RabbitMQ с app user/vhost этого сервиса. Пароли PostgreSQL/UI минимум 12 символов, ключи интеграций минимум 24. `scripts/up.sh` не создаёт общую сеть, пользователей или vhost, не меняет shared configuration. Владелец подтвердил, что app-учётную запись ещё выделяет администратор; до этого сквозное развёртывание не пройдёт dependency preflight.
+На сервере должны работать Docker/Compose, сеть `ai-shared`, shared-vlm и существующий RabbitMQ. Нужны GNU timeout и flock (coreutils/util-linux). По разрешению владельца `scripts/up.sh` создаёт отсутствующие app user/vhost `specification` через CLI существующего `shared-rabbitmq-1`. Пароли PostgreSQL/UI/RabbitMQ минимум 12 символов, ключи интеграций минимум 24. Конфигурация shared stack не редактируется, общие сервисы не перезапускаются.
 
 Settings и Compose имеют одинаковое наслоение `.env.example`, затем `.env`, затем process environment. Команды Compose ниже обязательно используют оба файла. Не выводите полный `docker compose config`: там раскрываются секреты; `config --quiet` достаточен.
+
+## Первое создание .env
+
+Рабочий репозиторий — `Amadu-A/spec-extracting-ai`. Если серверный clone сделан из `neo-term-it`, измените origin и получите рабочую ветку. Команда pull остановится при несовместимой истории или локальных изменениях; не применяйте reset для обхода отказа.
+
+```bash
+cd ~/projects/spec-extracting-ai
+git remote set-url origin git@github.com:Amadu-A/spec-extracting-ai.git
+git pull --ff-only origin main
+```
+
+Следующий блок создаёт `.env` один раз, с правами 600 и случайными секретами. При существующем файле он остановится, сохранив пароли. Для первичной настройки нужны ровно четыре переменные: `DATABASE_PASSWORD`, `RABBITMQ_PASSWORD`, `UI_PASSWORD`, `API_KEYS`. Имена пользователя/vhost, адреса и порты остаются в `.env.example`.
+
+```bash
+(
+  set +x
+  set -euo pipefail
+  umask 077
+  [[ ! -e .env ]] || { echo '.env уже существует: сохраните его секреты.' >&2; exit 1; }
+  database_secret=$(openssl rand -hex 32)
+  rabbitmq_secret=$(openssl rand -hex 32)
+  ui_secret=$(openssl rand -hex 32)
+  onec_key=$(openssl rand -hex 32)
+  telegram_key=$(openssl rand -hex 32)
+  evaluation_key=$(openssl rand -hex 32)
+  set -C
+  printf 'DATABASE_PASSWORD=%s\nRABBITMQ_PASSWORD=%s\nUI_PASSWORD=%s\nAPI_KEYS={"onec":"%s","telegram":"%s","evaluation":"%s"}\n' \
+    "$database_secret" "$rabbitmq_secret" "$ui_secret" "$onec_key" "$telegram_key" "$evaluation_key" > .env
+  printf 'Пароль входа в Web UI: %s\n' "$ui_secret"
+)
+```
+
+Пароль UI появится только в вашем терминале. При последующих обновлениях `.env` не пересоздаётся. Если пользователь `specification` уже существует, в `RABBITMQ_PASSWORD` должен быть именно его действующий пароль; автоматической смены пароля нет.
+
+Подготовка RabbitMQ использует Settings в одноразовом контейнере приложения, затем `docker exec --user rabbitmq` в уже существующем контейнере. Пароль передаётся через stdin в приватный файл `/dev/shm` с удалением после команды; в argv/логи и файлы других проектов он не попадает. Проверяются теги пользователя, отсутствие прав в чужих vhost и права в собственном vhost. Ошибки чтения/аутентификации не считаются отсутствием записи. CLI и Docker-клиент ограничены timeout; flock запрещает два одновременных запуска.
 
 ## Обновление и тесты
 
 ```bash
-cd ~/spec-extracting-ai
+cd ~/projects/spec-extracting-ai
 git pull --ff-only origin main
 bash scripts/test.sh --browser
 bash scripts/up.sh
@@ -32,7 +67,7 @@ curl --fail --show-error http://127.0.0.1:8083/api/v1/health/live
 curl --fail --show-error http://127.0.0.1:8083/api/v1/health/ready
 ```
 
-Для стандартной конфигурации первая команда должна показать `0.0.0.0:8083`. Liveness подтверждает работу API; readiness дополнительно проверяет PostgreSQL, RabbitMQ и VLM. Отсутствие app user/vhost RabbitMQ останавливает развёртывание на preflight.
+Для стандартной конфигурации первая команда должна показать `0.0.0.0:8083`. Liveness подтверждает работу API; readiness дополнительно проверяет PostgreSQL, RabbitMQ и VLM. Отсутствующие app user/vhost создаются до preflight; неверный пароль, служебные теги или права в чужом vhost останавливают запуск с явным сообщением.
 
 С Windows-клиента для сервера `192.168.55.3`:
 

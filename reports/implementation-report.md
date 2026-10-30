@@ -1,7 +1,7 @@
 <!-- reports/implementation-report.md -->
 # Отчёт реализации — 29.10.2026
 
-Код подготовлен в рабочем каталоге без Git add/commit/push и без изменения shared stack. Полная производственная приёмка остаётся открытой: владелец подтвердил, что администратор ещё должен выделить app user/vhost RabbitMQ.
+Код подготовлен без Git add/commit/push со стороны агента. Полная производственная приёмка остаётся открытой до серверного прогона. 30.10.2026 владелец разрешил автоматическое создание app user/vhost через существующий RabbitMQ; эта подготовка включена в `scripts/up.sh`. Конфигурация shared stack не редактируется.
 
 ## Что реализовано
 
@@ -28,7 +28,7 @@
 | Собственный Compose | `config --quiet` с безопасными тестовыми значениями — пройден |
 | Live API внутри Linux | `/health/live` 200, `/docs`/локальные Swagger assets/session 200, OpenAPI 19 paths с типизированным статусом |
 | Readiness | Правильно 503: database=true, shared_vlm=true, rabbitmq=false |
-| Настоящий RabbitMQ/worker вместе с PG/VLM | Не проверен: app account/vhost пока не выделены; offline doubles явно отделены от live tests |
+| Настоящий RabbitMQ/worker вместе с PG/VLM | Серверный прогон не подтверждён; 30.10 добавлена автоподготовка app user/vhost. Offline doubles явно отделены от live tests |
 
 Coverage последнего Windows-набора с Chromium: 83,83% statements, 66,42% branches, 80,71% объединённого показателя coverage.py. Это диагностическая метрика, не заявление о полном покрытии каждого deployment-пути. Native PDF subprocess реально вызывается тестами, но его строки не включаются в покрытие родительского процесса. Реальные AMQP restart/redelivery и Linux Chromium E2E на сервере требуют отдельного прогона; CI Linux browser workflow подготовлен.
 
@@ -51,7 +51,7 @@ Coverage последнего Windows-набора с Chromium: 83,83% statement
 
 ## Оставшиеся ограничения
 
-1. Нельзя считать production deployment и сквозной RabbitMQ recovery принятыми до выделения app credentials и прогона `--live`. Скрипт up не подменяет недоступный broker: dependency preflight останавливает запуск.
+1. Нельзя считать production deployment и сквозной RabbitMQ recovery принятыми до успешного серверного прогона `up.sh`/`--live`. С 30.10 выделенный app user/vhost создаются автоматически; недоступный broker не подменяется.
 2. Две позиции ТМ на границе PDF 18–19 модель ошибочно сочла переносом; конфликт количеств и незакрытый carryover видны в warnings. Они исключены из подтверждённого экспорта. Нужны ручная сверка/новый анализ с уточнёнными инструкциями, а не автоматическая подстановка baseline.
 3. Полный шифр ЭОМ не читается в штампе страницы 8: виден только `.СО`. Тестовый клиент использовал предоставленный baseline-код `267-РД-ИТП.ЭОМ.СО`; перед импортом его подтверждает владелец. АТМД имеет шифр АТМ.СО, отличающийся от имени файла.
 4. Schema validation не гарантирует полноту распознавания. Все четыре результата имеют completed_with_warnings, сверка с оригиналом остаётся обязательной для спорных участков.
@@ -77,4 +77,23 @@ Coverage последнего Windows-набора с Chromium: 83,83% statement
 - Production image пересобран. Во временном собственном контейнере подтверждён Docker binding `0.0.0.0:8083`; по адресу Windows-хоста вне loopback получены HTTP 200 для `/`, `/docs`, `/openapi.json`, JS из HTML и `/api/v1/health/live`. Контейнер удалён после проверки. БД, RabbitMQ и модель этим сетевым тестом не подменялись и не проверялись.
 - Серверная проверка только на чтение: `192.168.55.3:8000/health` вернул 200; TCP `192.168.55.3:8083` с рабочего компьютера недоступен. Docker context здесь — `desktop-linux`, доступа к shell сервера нет: серверное развёртывание, firewall/NAT и сквозная готовность не подтверждены.
 
-Изменения подготовлены локально без commit/push. Для полного запуска остаётся выделить app user/vhost RabbitMQ и заполнить настройки по README; shared stack не изменялся.
+Изменения публикации подготовлены без commit/push агента. Последующее разрешение владельца на автоматическую подготовку app user/vhost реализовано ниже.
+
+## Автоподготовка RabbitMQ — 30.10.2026
+
+Изучены текущие `scripts/up.sh`, `app/provisioning.py` и functional tests локального `contract-diff-search`. По прямому требованию владельца подготовка перенесена в существующий `scripts/up.sh` сервиса спецификаций. Основной репозиторий подтверждён владельцем: `Amadu-A/spec-extracting-ai`; серверный clone `neo-term-it` должен сменить origin перед pull.
+
+Добавлены открытые Settings `RABBITMQ_CONTAINER=shared-rabbitmq-1` и `RABBITMQ_CLI_TIMEOUT_SECONDS=30`. Служебная операция `python -m app.operations broker-config` валидирует имена и секреты Pydantic и возвращает закрытый протокол родительскому скрипту. Его stdout содержит пароль и не предназначен для ручного вывода. Новый entrypoint-скрипт, зависимость, модель или брокер не добавлены.
+
+Скрипт проверяет работающий контейнер и сеть ai-shared, создаёт отсутствующего пользователя `specification` без тегов, проверяет пароль, создаёт vhost `specification` и выдаёт права только в нём. Повторный запуск не пересоздаёт ресурсы и не меняет пароль. Отказ аутентификации, служебные теги, права в других vhost и ошибки CLI останавливают запуск. Есть flock и конечные timeout Docker/CLI.
+
+Пароль передаётся через stdin в приватный временный файл `/dev/shm` внутри существующего брокера; файл удаляется при штатном завершении/обрабатываемых сигналах. RPC читает файл без секрета в argv. Пароли/файлы других проектов не читаются. Контракты проверены по исходникам RabbitMQ 4.1: [eval с позиционными bindings](https://github.com/rabbitmq/rabbitmq-server/blob/v4.1.0/deps/rabbitmq_cli/lib/rabbitmq/cli/ctl/commands/eval_command.ex), [add_user](https://github.com/rabbitmq/rabbitmq-server/blob/v4.1.0/deps/rabbit/src/rabbit_auth_backend_internal.erl), [check_user_pass_login](https://github.com/rabbitmq/rabbitmq-server/blob/v4.1.0/deps/rabbit/src/rabbit_access_control.erl).
+
+Фактические результаты:
+
+- Windows quality с Chromium: 122 passed, 1 skipped (POSIX timeout проверяется на Linux), 4 deselected live; Ruff/format и 4 JS tests пройдены. Одно прежнее предупреждение pytest cache ACL.
+- Linux offline: 121 passed, 6 deselected browser/live; проверен настоящий GNU timeout зависшего Docker-клиента. Docker и состояние RabbitMQ в functional тестах — изолированная подмена, не реальные AMQP вызовы.
+- Команды создания `.env` из документации реально исполнены в пустом временном каталоге на Windows/Linux: ровно четыре секретные переменные, шесть независимых значений, три API-owner, права 600 на Linux, повтор не изменяет файл.
+- Production image пересобран. Серверный RabbitMQ не изменялся из этой среды; подтверждение реального bootstrap и app-vhost ожидается после запуска оператором на aistation.
+
+Изменённые файлы: `.env.example`, `AGENTS.md`, `app/core/settings.py`, `app/operations.py`, `scripts/up.sh`, `README.md`, `docs/operations.md`, `reports/files.md`, этот отчёт. Добавлены `tests/test_bootstrap_settings.py` и `tests/test_deployment.py`. Миграции не требуются. Commit/push выполняет владелец.

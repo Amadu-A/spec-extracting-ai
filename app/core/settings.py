@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     database_password: SecretStr = SecretStr("")
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
+    rabbitmq_container: str = "shared-rabbitmq-1"
+    rabbitmq_cli_timeout_seconds: int = Field(30, ge=5, le=120)
     rabbitmq_vhost: str = "specification"
     rabbitmq_user: str = "specification"
     rabbitmq_password: SecretStr = SecretStr("")
