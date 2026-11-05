@@ -56,6 +56,7 @@
 - app/web/static/css/style.css
 - app/web/static/css/tokens.css
 - app/web/static/icons.svg
+- app/web/static/favicon.svg
 - app/web/static/js/api.js
 - app/web/static/js/app.js
 - app/web/static/js/docs.js
@@ -89,6 +90,7 @@
 - reports/corpus-matrix.md
 - reports/deployment-repair.md
 - reports/files.md
+- reports/favicon.md
 - reports/golden-review.md
 - reports/implementation-report.md
 - reports/quality.md
