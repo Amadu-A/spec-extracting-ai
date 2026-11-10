@@ -1,6 +1,6 @@
 {
   "267-РД-ИТП.ТМ": [
-    {"Pages": "1", "Caption_contains": ["Кран шаровой FF DN300 PN25"], "expected": {"Brand": "Ридан", "Article": "", "Note": ""}},
+    {"Pages": "1", "Caption_contains": ["Кран шаровой FF DN300 PN25"], "expected": {"Brand": "Ридан", "Article": "065N0366GR", "Note": ""}},
     {"Pages": "1", "Caption_contains": ["Первичный преобразователь расхода Ду200"], "expected": {"Brand": "Тепловизор", "Article": "", "Note": "см.УУТЭ"}}
   ],
   "267-РД-ИТП.АТМД": [

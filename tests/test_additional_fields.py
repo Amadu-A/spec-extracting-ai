@@ -142,8 +142,9 @@ def test_public_event_serialization_keeps_raw_model_stream():
 
 
 @pytest.mark.parametrize("headers", [HEADERS, {"Authorization": "Bearer " + HEADERS["X-API-Key"]}])
+@pytest.mark.parametrize("article_header", ["Артикул", "Код оборудования, изделия, материала"])
 async def test_new_fields_reach_all_public_results_after_carryover(
-    root, client, pdf_bytes, headers
+    root, client, pdf_bytes, headers, article_header
 ):
     """Оба прежних API-credential передают новые графы через worker, SSE, snapshot и Excel."""
     from io import BytesIO
@@ -163,7 +164,7 @@ async def test_new_fields_reach_all_public_results_after_carryover(
                     note="К1",
                 )
             ],
-            article_header="Артикул",
+            article_header=article_header,
         ).model_dump_json(),
         page([row(caption="", continuation=True)]).model_dump_json(),
     ]
@@ -200,10 +201,10 @@ async def test_new_fields_reach_all_public_results_after_carryover(
 
 
 @pytest.mark.parametrize(
-    "header", ["", "Код оборудования, изделия, материала", "Марка", "НеАртикул"]
+    "header", ["", "Тип, марка, обозначение документа", "Марка", "НеАртикул", "Код"]
 )
 def test_catalogue_code_is_not_an_article_without_literal_header(header):
-    """Регрессия реального ТМ: каталожный код из другой графы остаётся только в диагностике."""
+    """Артикул из неподтверждённой или посторонней графы остаётся только в диагностике."""
     items, warnings, _ = reconcile(
         1, "P", page([row(article="065N0366GR")], article_header=header), None
     )
@@ -212,9 +213,18 @@ def test_catalogue_code_is_not_an_article_without_literal_header(header):
     assert warnings[0].row.article == "065N0366GR"
 
 
-@pytest.mark.parametrize("header", ["Артикул", "Арти-\nкул", "Артикул производителя"])
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Артикул",
+        "Арти-\nкул",
+        "Артикул производителя",
+        "Код оборудования, изделия, материала",
+        "Код обору-\nдования,\nизделия,\nматериала",
+    ],
+)
 def test_article_requires_the_literal_source_column(header):
-    """Заголовок разрешает артикул с ведущими нулями, включая перенос названия графы."""
+    """Оба подтверждённых заголовка разрешают артикул, в том числе при переносе названия графы."""
     items, warnings, _ = reconcile(
         1, "P", page([row(article="00042/AB")], article_header=header), None
     )

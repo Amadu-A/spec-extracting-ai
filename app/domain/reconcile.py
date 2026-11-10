@@ -71,12 +71,15 @@ def reconcile(
         if row.continuation and previous and previous.pdf_page == page - 1:
             article_header = article_header or previous.article_header
         normalized_header = re.sub(r"[\-–­]\s*", "", article_header).casefold()
-        if row.article and not re.search(r"\bартикул(?:ы)?\b", normalized_header):
+        if row.article and not re.search(
+            r"\b(?:артикул(?:ы)?|код\s+оборудования\s*,?\s*изделия\s*,?\s*материала)\b",
+            normalized_header,
+        ):
             warnings.append(
                 Warning(
                     pdf_page=page,
                     code="article_column_unverified",
-                    message="Значение Article исключено: модель не подтвердила буквальный заголовок графы «Артикул». Исходное значение сохранено в строке диагностики.",
+                    message="Значение Article исключено: модель не подтвердила заголовок «Артикул» или «Код оборудования, изделия, материала». Исходное значение сохранено в строке диагностики.",
                     row=row,
                 )
             )

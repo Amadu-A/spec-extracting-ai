@@ -21,6 +21,7 @@ from app.domain.quality import compare_exports, compare_reviewed_fields
 from app.infrastructure.vlm import SharedVlmClient
 from scripts.evaluate import find_pairs
 from tests.conftest import KEY_A
+from tests.test_article_sources import compare_article_rows, expected_articles
 
 
 @pytest.mark.live
@@ -39,7 +40,7 @@ async def test_all_documents_with_real_vlm(root, client, request):
             Path("tests/fixtures/additional-fields.json").read_text, encoding="utf8"
         )
     )
-    output = Path("reports/live/extended-fields")
+    output = Path("reports/live/article-sources/final")
     await asyncio.to_thread(output.mkdir, parents=True, exist_ok=True)
     model = SharedVlmClient(root.settings)
     root.processor.model = model
@@ -97,6 +98,8 @@ async def test_all_documents_with_real_vlm(root, client, request):
                 encoding="utf8",
             )
             expected = Export.model_validate_json(baseline.read_text(encoding="utf-8-sig"))
+            expected = expected_articles(name, expected)
+            article_comparison = compare_article_rows(expected, actual)
             reviewed = compare_reviewed_fields(samples[name], actual)
             reports.append(
                 {
@@ -105,6 +108,7 @@ async def test_all_documents_with_real_vlm(root, client, request):
                     "duration_seconds": round(perf_counter() - started, 2),
                     "prompt_version": job.prompt_version,
                     "reviewed_additional_fields": reviewed,
+                    "article_comparison": article_comparison,
                     **compare_exports(expected, actual),
                 }
             )
@@ -122,6 +126,13 @@ async def test_all_documents_with_real_vlm(root, client, request):
             if job.state not in ("completed", "completed_with_warnings"):
                 failures.append(f"{name}: {job.state}, {job.error_code}")
                 continue
+            if (
+                article_comparison["page_count_mismatches"]
+                or article_comparison["value_mismatches"]
+            ):
+                failures.append(
+                    f"{name}: Article не совпадает по страницам/строкам, см. ignored quality.json"
+                )
             json_response = await client.get(
                 f"/api/v1/extractions/{identifier}/result.json", headers=headers
             )
@@ -155,6 +166,60 @@ async def test_all_documents_with_real_vlm(root, client, request):
         await model.close()
     assert len(reports) == 4
     assert not failures, "; ".join(failures)
+
+
+@pytest.mark.live
+@pytest.mark.parametrize("suffix,pages", [(".ТМ", "18-19"), (".АТМД", "4-5")])
+async def test_real_complete_rows_at_page_boundary(root, client, request, suffix, pages):
+    """Закрытая последняя строка остаётся самостоятельной при смене листа и новой графе кода."""
+    if not request.config.getoption("--vlm"):
+        pytest.skip("Требуется --vlm")
+    pair = next(
+        (
+            (pdf, baseline)
+            for pdf, baseline in find_pairs(Path("examples"))
+            if pdf.stem.endswith(suffix)
+        ),
+        None,
+    )
+    if pair is None:
+        pytest.skip("Нужны локальные PDF в examples/")
+    source, baseline = pair
+    expected = expected_articles(
+        source.stem.removeprefix("spec_"),
+        Export.model_validate_json(baseline.read_text(encoding="utf-8-sig")),
+    )
+    first, last = map(int, pages.split("-"))
+    expected = Export(items=[i for i in expected.items if first <= int(i.Pages) <= last])
+    model = SharedVlmClient(root.settings)
+    root.processor.model = model
+    try:
+        with source.open("rb") as stream:
+            response = await client.post(
+                "/api/v1/extractions",
+                headers={"X-API-Key": KEY_A},
+                files={"file": (source.name, stream, "application/pdf")},
+                data={"pages": pages, "project_code": expected.items[0].UserComment1},
+            )
+        assert response.status_code == 202
+        identifier = response.json()["job_id"]
+        await root.processor.execute(identifier)
+        job = await root.repository.get(identifier)
+        comparison = compare_article_rows(expected, job.export())
+        target = Path(f"reports/live/article-sources/boundary{suffix}.json")
+        await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(
+            target.write_text, json.dumps(comparison, ensure_ascii=False, indent=2), encoding="utf8"
+        )
+        assert job.state in ("completed", "completed_with_warnings"), job.error_code
+        assert not comparison["page_count_mismatches"] and not comparison["value_mismatches"]
+        assert not any(
+            warning.code in ("orphan_continuation", "unclosed_carryover", "carryover_conflict")
+            for page in job.pages
+            for warning in page.warnings
+        )
+    finally:
+        await model.close()
 
 
 @pytest.mark.live
@@ -199,7 +264,7 @@ async def test_real_vlm_article_column_and_leading_zeros(root, client, request):
         identifier = response.json()["job_id"]
         await root.processor.execute(identifier)
         job = await root.repository.get(identifier)
-        output = Path("reports/live/extended-fields/synthetic-article.json")
+        output = Path("reports/live/article-sources/synthetic-article.json")
         await asyncio.to_thread(output.parent.mkdir, parents=True, exist_ok=True)
         await asyncio.to_thread(
             output.write_text, job.export().model_dump_json(indent=2), encoding="utf8"
@@ -229,9 +294,15 @@ async def test_real_tm_page_nine_bounded_warnings(root, client, request):
     if not request.config.getoption("--vlm"):
         pytest.skip("Требуется --vlm")
     pairs = await asyncio.to_thread(find_pairs, Path("examples"))
-    source = next((pdf for pdf, _ in pairs if pdf.stem.endswith(".ТМ")), None)
-    if source is None:
+    pair = next(((pdf, baseline) for pdf, baseline in pairs if pdf.stem.endswith(".ТМ")), None)
+    if pair is None:
         pytest.skip("Нужен локальный ТМ в examples/")
+    source, baseline = pair
+    expected = expected_articles(
+        source.stem.removeprefix("spec_"),
+        Export.model_validate_json(baseline.read_text(encoding="utf-8-sig")),
+    )
+    expected = Export(items=[item for item in expected.items if item.Pages == "9"])
     model = SharedVlmClient(root.settings)
     root.processor.model = model
     try:
@@ -253,6 +324,7 @@ async def test_real_tm_page_nine_bounded_warnings(root, client, request):
             for warning in job.pages[0].warnings
             if warning.code == "model_warning"
         )
-        assert all(item.Article == "" for item in job.export().items)
+        comparison = compare_article_rows(expected, job.export())
+        assert not comparison["page_count_mismatches"] and not comparison["value_mismatches"]
     finally:
         await model.close()
