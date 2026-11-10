@@ -41,7 +41,7 @@ def build_container(settings: Settings | None = None) -> Container:
     storage, pdf = LocalStorage(settings.data_directory), IsolatedPdfReader(settings)
     model, broker = SharedVlmClient(settings), RabbitPublisher(settings)
     default = (
-        Path(__file__).resolve().parent.parent / "prompts/extract_specification_v1.txt"
+        Path(__file__).resolve().parent.parent / "prompts/extract_specification_v2.txt"
     ).read_text(encoding="utf-8")
     extractions = ExtractionService(repository, storage, pdf, settings, default)
     return Container(

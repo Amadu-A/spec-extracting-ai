@@ -28,7 +28,7 @@ class ExportService:
 
     @timed("export_excel")
     async def excel(self, job_id: str, owner: str) -> bytes:
-        """Возвращает строковые ячейки и отдельный лист реальных предупреждений."""
+        """Возвращает шаблонный Excel; предупреждения доступны через API диагностики."""
         job = await self.ready(job_id, owner)
         started_at, started = utcnow(), perf_counter()
         data = await self.exporter.excel(job.export(), [w for p in job.pages for w in p.warnings])

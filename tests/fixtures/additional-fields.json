@@ -1,0 +1,16 @@
+{
+  "267-РД-ИТП.ТМ": [
+    {"Pages": "1", "Caption_contains": ["Кран шаровой FF DN300 PN25"], "expected": {"Brand": "Ридан", "Article": "", "Note": ""}},
+    {"Pages": "1", "Caption_contains": ["Первичный преобразователь расхода Ду200"], "expected": {"Brand": "Тепловизор", "Article": "", "Note": "см.УУТЭ"}}
+  ],
+  "267-РД-ИТП.АТМД": [
+    {"Pages": "1", "Caption_contains": ["Щит автоматики 1400x800x300мм"], "expected": {"Brand": "Россия", "Article": "", "Note": ""}},
+    {"Pages": "2", "Caption_contains": ["Датчик влажности и температуры"], "expected": {"Brand": "Рэлсиб (Россия)", "Article": "", "Note": "ТЕ23/МЕ1"}}
+  ],
+  "267-РД-ИТП.УУТЭ": [
+    {"Pages": "1", "Caption_contains": ["ВИСТ ТС"], "expected": {"Brand": "ЗАО «Тепловизор Пром»", "Article": "", "Note": "подающий и обратный трубопроводы"}}
+  ],
+  "267-РД-ИТП.ЭОМ": [
+    {"Pages": "1", "Caption_contains": ["Кабель", "3x0,75"], "Quantity": "36", "expected": {"Brand": "", "Article": "", "Note": ""}}
+  ]
+}

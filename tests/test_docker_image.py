@@ -92,6 +92,16 @@ for root in roots:
         assert not path.stat().st_mode & 0o022,str(path)
         count+=path.suffix=='.py'
 import app.operations
+from io import BytesIO
+from openpyxl import load_workbook
+from app.domain.models import Export, SpecificationItem
+from app.infrastructure.excel import build_excel
+item=SpecificationItem(Caption='valve',Units='pcs',Quantity='001,50',UserComment1='P',Pages='1',Article='0001')
+book=load_workbook(BytesIO(build_excel(Export(items=[item]),[])))
+sheet=book.worksheets[0]
+assert len(book.worksheets)==1 and sheet.max_column==18 and sheet.max_row==2
+assert sheet['C2'].value=='valve' and sheet['N2'].value=='0001'
+assert sheet['E2'].value=='001,50' and sheet['G2'].value=='RUB'
 print(json.dumps({'uid':os.getuid(),'python_modules':count,'operations_import':'OK'}))
 """
         command = [

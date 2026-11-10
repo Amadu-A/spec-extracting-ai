@@ -7,6 +7,7 @@
 
 import asyncio
 import contextlib
+import json
 import socket
 import threading
 import time
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import pytest
 import uvicorn
+from openpyxl import load_workbook
 
 from app.presentation.http.app import create_app
 
@@ -64,7 +66,7 @@ def web_server(root):
 
 
 @pytest.mark.browser
-def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server):
+def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server, tmp_path):
     """Проверяет рабочие controls, server prompt, навигацию, журнал и оба скачивания."""
     from playwright.sync_api import expect, sync_playwright
 
@@ -105,10 +107,30 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server):
         expect(page.locator("[data-progress]")).to_have_text("100%")
         expect(page.locator('[data-export="json"]')).to_be_enabled()
         assert root.model.calls[0]["prompt"] == original
+        downloads = {}
         for extension in ("json", "xlsx"):
             with page.expect_download() as download:
                 page.locator(f'[data-export="{extension}"]').click()
             assert download.value.suggested_filename.endswith("." + extension)
+            path = tmp_path / f"download.{extension}"
+            download.value.save_as(path)
+            downloads[extension] = path
+        exported = json.loads(downloads["json"].read_text(encoding="utf8"))
+        sheet = load_workbook(downloads["xlsx"]).active
+        assert sheet.title == "Лист_1" and sheet.max_column == 18 and sheet.max_row == 3
+        for index, item in enumerate(exported["items"], start=2):
+            assert len(item) == 8
+            for field, column in {
+                "Caption": "C",
+                "Units": "D",
+                "Quantity": "E",
+                "Brand": "M",
+                "Article": "N",
+                "UserComment1": "P",
+                "Pages": "Q",
+                "Note": "R",
+            }.items():
+                assert (sheet[f"{column}{index}"].value or "") == item[field]
         page.locator("[data-page-number]").fill("3")
         page.locator("[data-page-number]").press("Tab")
         expect(page.locator("[data-page-number]")).to_have_value("3")
@@ -144,6 +166,8 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server):
         page.locator("[data-menu-toggle]").click()
         page.locator("[data-toggle-view]").click()
         expect(page.locator("[data-stream-state]")).to_contain_text("Подтверждённый")
+        for field in ("Brand", "Article", "Note"):
+            expect(page.locator("[data-code]")).to_contain_text(f'"{field}"')
         page.locator("[data-warnings-open]").click()
         expect(page.locator("[data-warnings-dialog]")).to_be_visible()
         page.locator("[data-warnings-close]").click()
@@ -252,9 +276,6 @@ def test_real_pdf_vlm_ui_json_excel(root, web_server, tmp_path, request):
     """Реальный PDF/VLM/UI/export путь; только AMQP transport заменён локальным dispatcher."""
     if not request.config.getoption("--vlm"):
         pytest.skip("Не указан --vlm")
-    import json
-
-    from openpyxl import load_workbook
     from playwright.sync_api import expect, sync_playwright
 
     from app.infrastructure.vlm import SharedVlmClient
@@ -290,7 +311,19 @@ def test_real_pdf_vlm_ui_json_excel(root, web_server, tmp_path, request):
             outputs[extension] = path
         result = json.loads(outputs["json"].read_text(encoding="utf8"))
         sheet = load_workbook(outputs["xlsx"]).worksheets[0]
-        assert list(sheet.values)[1:] == [tuple(item.values()) for item in result["items"]]
+        assert sheet.max_column == 18 and sheet.max_row == len(result["items"]) + 1
+        for index, item in enumerate(result["items"], start=2):
+            for field, column in {
+                "Caption": "C",
+                "Units": "D",
+                "Quantity": "E",
+                "Brand": "M",
+                "Article": "N",
+                "UserComment1": "P",
+                "Pages": "Q",
+                "Note": "R",
+            }.items():
+                assert (sheet[f"{column}{index}"].value or "") == item[field]
         assert all(item["Pages"] == "1" for item in result["items"])
         page.locator("[data-menu-toggle]").click()
         page.locator("[data-toggle-view]").click()

@@ -19,6 +19,7 @@ from app.infrastructure.broker import RabbitPublisher
 from app.infrastructure.database import SqlRepository
 from app.infrastructure.vlm import SharedVlmClient
 from tests.conftest import uploaded
+from tests.test_domain import page, row
 
 
 @pytest.mark.live
@@ -63,11 +64,21 @@ async def test_postgresql_migrations_transactions_locks(root, pdf_bytes, request
         *[root.extractions.start("live-test", doc.id, "1", "P", key) for _ in range(3)]
     )
     assert len({job.id for job in jobs}) == 1
+    root.model.responses = [
+        page(
+            [row(brand="Завод", article="00042/AB", note="Для ИТП")], article_header="Артикул"
+        ).model_dump_json()
+    ]
     await asyncio.gather(root.processor.execute(jobs[0].id), root.processor.execute(jobs[0].id))
     current = await repository.get(jobs[0].id)
     assert current.state.value == "completed" and len(root.model.calls) == 1
+    assert current.export().items[0].Brand == "Завод"
+    assert current.export().items[0].Article == "00042/AB"
+    assert current.export().items[0].Note == "Для ИТП"
     events = await repository.events(current.id, 0, 200)
     assert [event.id for event in events] == list(range(1, current.event_seq + 1))
+    item_event = next(event for event in events if event.type == "item_validated")
+    assert item_event.data["item"] == current.export().items[0].model_dump()
     assert (await repository.document(doc.id)).expires_at == current.expires_at
     second = await root.extractions.start("live-test", doc.id, "2", "P")
     assert (await repository.document(doc.id)).expires_at == second.expires_at
@@ -125,7 +136,7 @@ async def test_real_shared_vlm_vision_stream_schema(request):
     try:
         assert await model.ping()
         prompt = await asyncio.to_thread(
-            Path("prompts/extract_specification_v1.txt").read_text, encoding="utf8"
+            Path("prompts/extract_specification_v2.txt").read_text, encoding="utf8"
         )
         chunks = [
             part

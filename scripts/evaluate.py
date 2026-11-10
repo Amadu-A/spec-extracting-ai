@@ -15,7 +15,7 @@ import httpx
 
 from app.core.settings import Settings
 from app.domain.models import Export
-from app.domain.quality import compare_exports
+from app.domain.quality import compare_exports, compare_reviewed_fields
 
 
 def find_pairs(directory: Path) -> list[tuple[Path, Path]]:
@@ -63,10 +63,29 @@ def write_report(directory: Path, results: list[dict], mode: str) -> None:
         lines.append(
             f"| {row['name']} | {row['baseline_items']} | {row['actual_items']} | {row['exact_matches']} | {row['exact_f1']:.2%} | {len(row['changed'])} | {len(row['missing'])} | {len(row['added'])} | {row.get('duration_seconds', 0):.1f} | {row.get('status', 'не указан')} |"
         )
+    if any("reviewed_additional_fields" in row for row in results):
+        lines.extend(
+            [
+                "",
+                "## Новые поля: ручная выборка из PDF",
+                "",
+                "Метрика отдельно от пяти прежних полей. Пустые значения старого baseline не считаются эталоном новых граф.",
+                "",
+                "| Комплект | Проверено строк | Найдено однозначно | Brand точно | Article точно | Note точно |",
+                "|---|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for row in results:
+            reviewed = row.get("reviewed_additional_fields")
+            if reviewed:
+                fields = reviewed["exact_fields"]
+                lines.append(
+                    f"| {row['name']} | {reviewed['reviewed_rows']} | {reviewed['located_rows']} | {fields['Brand']} | {fields['Article']} | {fields['Note']} |"
+                )
     lines.extend(
         [
             "",
-            "Подробные различия по пяти полям и PDF-страницам: `reports/live/quality.json` (локальный файл, исключён из Git).",
+            f"Подробные различия по пяти полям и PDF-страницам: `{(directory / 'quality.json').as_posix()}` (локальный файл, исключён из Git).",
             "",
             "Изменённые строки — кандидаты для ручной сверки, не автоматически исправленные данные. Различия в Caption могут быть полезными уточнениями исходного PDF. Проверка JSON-схемы не доказывает отсутствие пропусков.",
         ]
@@ -100,6 +119,11 @@ async def evaluate(arguments) -> None:
     arguments.output.mkdir(parents=True, exist_ok=True)
     reports = []
     manifest = json.loads(arguments.manifest.read_text(encoding="utf-8"))
+    reviewed = json.loads(
+        await asyncio.to_thread(
+            Path("tests/fixtures/additional-fields.json").read_text, encoding="utf-8"
+        )
+    )
     headers = {"X-API-Key": settings.api_keys[arguments.owner].get_secret_value()}
     async with httpx.AsyncClient(
         base_url=arguments.api_url.rstrip("/"), headers=headers, timeout=120, trust_env=False
@@ -170,6 +194,9 @@ async def evaluate(arguments) -> None:
                     "document_pages": status["document_pages"],
                     "duration_seconds": perf_counter() - started,
                     **compare_exports(expected, actual),
+                    "reviewed_additional_fields": compare_reviewed_fields(
+                        reviewed.get(dataset, []), actual
+                    ),
                 }
             )
             write_report(

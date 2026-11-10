@@ -1,11 +1,11 @@
 <!-- README.md -->
 # Извлечение спецификаций
 
-FastAPI-сервис извлекает товары и материалы с выбранных физических страниц PDF, включая сканы, через существующий `shared-vlm`. Web UI показывает оригинал слева и настоящий JSON-stream справа. Независимый REST API подходит для 1С, Telegram и других клиентов. JSON содержит только `items` с пятью строковыми полями; Excel строится из тех же данных.
+FastAPI-сервис извлекает товары и материалы с выбранных физических страниц PDF, включая сканы, через существующий `shared-vlm`. Web UI показывает оригинал слева и настоящий JSON-stream справа. Независимый REST API подходит для 1С, Telegram и других клиентов. JSON содержит `items` с восемью строковыми полями: Caption, Units, Quantity, UserComment1, Pages, Brand, Article, Note. Excel заполняется теми же данными по утверждённому шаблону из 18 столбцов, без демонстрационных товаров.
 
 ## Структура
 
-`app/domain` — правила и схема; `application` — use-case и порты; `infrastructure` — PostgreSQL/PDF/VLM/RabbitMQ/Excel; `presentation/http` — API; `web` — интерфейс. `migrations` — Alembic, `prompts` — стандартные инструкции, `tests` — проверки, `reports` — фактические измерения. Локальные `examples/`, `.env`, документы и результаты распознавания исключены из Git.
+`app/domain` — правила и схема; `application` — use-case и порты; `infrastructure` — PostgreSQL/PDF/VLM/RabbitMQ/Excel; `presentation/http` — API; `web` — интерфейс; `resources` — очищенный Excel-шаблон. `migrations` — Alembic, `prompts` — стандартные инструкции (v1 сохранён, текущий v2), `tests` — проверки, `reports` — фактические измерения. Локальные `examples/`, `.env`, документы и результаты распознавания не включаются в новые коммиты.
 
 ## Настройки
 

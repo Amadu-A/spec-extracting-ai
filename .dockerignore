@@ -9,6 +9,7 @@
 .wheels
 .reference
 examples
+outputs
 renders
 tmp
 data

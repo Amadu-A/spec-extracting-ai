@@ -11,6 +11,49 @@ from difflib import SequenceMatcher
 from app.domain.models import Export
 
 FIELDS = ("Caption", "Units", "Quantity", "UserComment1", "Pages")
+ADDITIONAL_FIELDS = ("Brand", "Article", "Note")
+
+
+def compare_reviewed_fields(samples: list[dict], actual: Export) -> dict:
+    """Сравнивает три поля только с небольшой выборкой, вручную сверенной по PDF.
+
+    Поиск не исправляет Caption и не засчитывает отсутствующую или неоднозначную
+    позицию. Пустые значения старых baseline не используются как эталон новых полей.
+    Подробности содержат данные документа и должны сохраняться только в ignored отчёт.
+    """
+    details = []
+    exact = {field: 0 for field in ADDITIONAL_FIELDS}
+    located = 0
+    for sample in samples:
+        candidates = [
+            item
+            for item in actual.items
+            if item.Pages == sample["Pages"]
+            and all(
+                fragment.casefold() in item.Caption.casefold()
+                for fragment in sample["Caption_contains"]
+            )
+            and ("Quantity" not in sample or item.Quantity == sample["Quantity"])
+        ]
+        found = candidates[0] if len(candidates) == 1 else None
+        located += found is not None
+        for field in ADDITIONAL_FIELDS:
+            exact[field] += found is not None and getattr(found, field) == sample["expected"][field]
+        details.append(
+            {
+                "sample": sample,
+                "candidates": len(candidates),
+                "actual": {field: getattr(found, field) for field in ADDITIONAL_FIELDS}
+                if found
+                else None,
+            }
+        )
+    return {
+        "reviewed_rows": len(samples),
+        "located_rows": located,
+        "exact_fields": exact,
+        "details": details,
+    }
 
 
 def compare_exports(expected: Export, actual: Export) -> dict:

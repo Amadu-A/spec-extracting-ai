@@ -2,6 +2,7 @@
 """Консервативное согласование строк: переносы только между соседними PDF-листами."""
 
 import json
+import re
 
 from pydantic import ValidationError
 
@@ -58,6 +59,7 @@ def reconcile(
                     row=previous.pending,
                 )
             )
+    pending_header = previous.article_header if previous and pending else ""
     seen: dict[str, Row] = {}
     for row in result.rows:
         if row.row_id in seen:
@@ -65,6 +67,20 @@ def reconcile(
                 "ambiguous_model_rows", "Повторный row_id требует повторной обработки страницы", 502
             )
         seen[row.row_id] = row
+        article_header = result.article_header
+        if row.continuation and previous and previous.pdf_page == page - 1:
+            article_header = article_header or previous.article_header
+        normalized_header = re.sub(r"[\-–­]\s*", "", article_header).casefold()
+        if row.article and not re.search(r"\bартикул(?:ы)?\b", normalized_header):
+            warnings.append(
+                Warning(
+                    pdf_page=page,
+                    code="article_column_unverified",
+                    message="Значение Article исключено: модель не подтвердила буквальный заголовок графы «Артикул». Исходное значение сохранено в строке диагностики.",
+                    row=row,
+                )
+            )
+            row = row.model_copy(update={"article": ""})
         origin = page
         sources = [page]
         if row.continuation:
@@ -78,14 +94,20 @@ def reconcile(
                     )
                 )
                 continue
-            if (pending.units and row.units and pending.units != row.units) or (
-                pending.quantity and row.quantity and pending.quantity != row.quantity
-            ):
+            conflicts = []
+            for field in ("units", "quantity", "brand", "article", "note"):
+                before, after = getattr(pending, field), getattr(row, field)
+                if field in ("brand", "article", "note"):
+                    before, after = before.strip(), after.strip()
+                if before and after and before != after:
+                    conflicts.append(field)
+            if conflicts:
                 warnings.append(
                     Warning(
                         pdf_page=page,
                         code="carryover_conflict",
-                        message="Поля продолжения противоречат исходной строке",
+                        message="Поля продолжения противоречат исходной строке: "
+                        + ", ".join(conflicts),
                         row=row,
                     )
                 )
@@ -99,6 +121,10 @@ def reconcile(
                     ),
                     "units": pending.units or row.units,
                     "quantity": pending.quantity or row.quantity,
+                    **{
+                        field: getattr(pending, field).strip() or getattr(row, field).strip()
+                        for field in ("brand", "article", "note")
+                    },
                     "designation": pending.designation
                     if pending.designation == row.designation
                     else " ".join(filter(None, [pending.designation, row.designation])),
@@ -122,6 +148,7 @@ def reconcile(
             pending, source_pages = None, []
         if row.continues_next:
             pending, source_pages = row, sources
+            pending_header = article_header
             continue
         if not row.verified or not all(x.strip() for x in [row.caption, row.units, row.quantity]):
             warnings.append(
@@ -145,6 +172,9 @@ def reconcile(
                     Quantity=row.quantity.strip(),
                     UserComment1=project,
                     Pages=str(origin),
+                    Brand=row.brand.strip(),
+                    Article=row.article.strip(),
+                    Note=row.note.strip(),
                 ),
                 source_pages=sources,
                 row_id=row.row_id,
@@ -155,5 +185,6 @@ def reconcile(
         pending=pending,
         source_pages=source_pages,
         group_context=result.group_context,
+        article_header=pending_header if pending else result.article_header,
     )
     return items, warnings, carry

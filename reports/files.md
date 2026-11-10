@@ -47,6 +47,8 @@
 - app/presentation/http/auth.py
 - app/presentation/http/routes.py
 - app/presentation/http/schemas.py
+- app/resources/README.md
+- app/resources/specification_v1.xlsx
 - app/web/static/css/base.css
 - app/web/static/css/blocks/layout.css
 - app/web/static/css/blocks/modal.css
@@ -84,6 +86,7 @@
 - ops/check-quality.ps1
 - package.json
 - prompts/extract_specification_v1.txt
+- prompts/extract_specification_v2.txt
 - pyproject.toml
 - renders/1.png
 - renders/2.png
@@ -91,6 +94,7 @@
 - reports/deployment-repair.md
 - reports/files.md
 - reports/favicon.md
+- reports/excel-template.md
 - reports/golden-review.md
 - reports/implementation-report.md
 - reports/quality.md
@@ -103,8 +107,10 @@
 - tests/conftest.py
 - tests/fixtures/README.md
 - tests/fixtures/corpus-manifest.json
+- tests/fixtures/additional-fields.json
 - tests/frontend/state.test.js
 - tests/test_adapters.py
+- tests/test_additional_fields.py
 - tests/test_api.py
 - tests/test_architecture.py
 - tests/test_bootstrap_settings.py
@@ -114,6 +120,8 @@
 - tests/test_docker_image.py
 - tests/test_domain.py
 - tests/test_environment.py
+- tests/test_excel_template.py
+- tests/test_live_corpus.py
 - tests/test_live_dependencies.py
 - tests/test_logging.py
 - tests/test_operations.py

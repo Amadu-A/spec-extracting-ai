@@ -49,9 +49,22 @@ async def test_headless_e2e_json_excel_sse(root, client, pdf_bytes):
     assert all(x["Quantity"] == "2,5" for x in payload["items"])
     excel = await client.get(status["links"]["xlsx"], headers=HEADERS)
     book = load_workbook(BytesIO(excel.content))
-    rows = list(book["Спецификация"].values)
-    assert list(rows[0]) == list(payload["items"][0])
-    assert [list(row) for row in rows[1:]] == [list(row.values()) for row in payload["items"]]
+    sheet = book["Лист_1"]
+    assert sheet.max_column == 18 and sheet.max_row == 3
+    mapping = {
+        "Caption": "C",
+        "Units": "D",
+        "Quantity": "E",
+        "UserComment1": "P",
+        "Pages": "Q",
+        "Brand": "M",
+        "Article": "N",
+        "Note": "R",
+    }
+    for index, item in enumerate(payload["items"], start=2):
+        assert len(item) == 8
+        for field, column in mapping.items():
+            assert (sheet[f"{column}{index}"].value or "") == item[field]
     events = await client.get(status["links"]["events"], headers=HEADERS)
     assert "event: page_started" in events.text and "event: text_delta" in events.text
     assert "event: item_validated" in events.text and "event: job_completed" in events.text
@@ -256,7 +269,12 @@ async def test_ready_and_export_warning(root, client, pdf_bytes):
     job = await root.repository.get(identifier)
     assert job.state == JobState.WARNINGS and not job.export().items
     result = await client.get(f"/api/v1/extractions/{identifier}/result.xlsx", headers=HEADERS)
-    assert "Предупреждения" in load_workbook(BytesIO(result.content)).sheetnames
+    book = load_workbook(BytesIO(result.content))
+    assert book.sheetnames == ["Лист_1"] and book.active.max_row == 1
+    diagnostics = (
+        await client.get(f"/api/v1/extractions/{identifier}/warnings", headers=HEADERS)
+    ).json()
+    assert diagnostics["total"] == 3
 
 
 async def test_body_limit_before_multipart_parser(root, pdf_bytes):

@@ -133,7 +133,7 @@ def root(tmp_path) -> Container:
         IsolatedPdfReader(settings),
         DeterministicModel(),
     )
-    default = Path("prompts/extract_specification_v1.txt").read_text(encoding="utf-8")
+    default = Path("prompts/extract_specification_v2.txt").read_text(encoding="utf-8")
     extractions = ExtractionService(repository, storage, pdf, settings, default)
     return Container(
         settings,

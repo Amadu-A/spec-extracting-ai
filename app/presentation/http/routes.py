@@ -111,7 +111,7 @@ async def save_prompt(body: PromptInput, request: Request, actor: Actor) -> dict
 
 @router.post("/session/prompt/restore", tags=["Web-сессия"], response_model=PromptStatus)
 async def restore_prompt(request: Request, actor: Actor) -> dict:
-    """Немедленно восстанавливает ресурс prompts/extract_specification_v1.txt."""
+    """Немедленно восстанавливает текущую стандартную версию промпта из ресурса."""
     if not actor.session:
         raise ServiceError("web_session_required", "Требуется web-сессия", 403)
     return await container(request).sessions.prompt(actor.session, restore=True)
@@ -323,7 +323,7 @@ async def events(
             batch = await dependencies.repository.events(str(job_id), cursor, 200)
             for event in batch:
                 cursor = event.id
-                payload = {**event.data, "timestamp": event.timestamp.isoformat()}
+                payload = {**event.public_data(), "timestamp": event.timestamp.isoformat()}
                 yield f"id: {event.id}\nevent: {event.type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
             if current.state in TERMINAL and cursor >= current.event_seq:
                 return
@@ -342,7 +342,7 @@ async def events(
 
 @router.get("/extractions/{job_id}/result.json", tags=["Экспорт"], response_model=Export)
 async def result_json(job_id: UUID, request: Request, actor: Actor) -> Response:
-    """Возвращает ровно items и пять строковых полей, только после полного завершения."""
+    """Возвращает items с восемью строковыми полями после полного завершения."""
     data = await container(request).exports.json_bytes(str(job_id), actor.owner)
     return Response(
         data,
@@ -360,7 +360,7 @@ async def result_json(job_id: UUID, request: Request, actor: Actor) -> Response:
     response_class=Response,
     responses={
         200: {
-            "description": "Excel, эквивалентный пятиколоночному JSON",
+            "description": "Excel по шаблону из 18 столбцов с теми же восемью значениями JSON",
             "content": {
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                     "schema": {"type": "string", "format": "binary"}

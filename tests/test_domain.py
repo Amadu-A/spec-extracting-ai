@@ -44,7 +44,16 @@ def test_quantity_string_is_preserved(quantity):
     )
     result = Export(items=[item]).model_dump()
     assert list(result) == ["items"]
-    assert list(result["items"][0]) == ["Caption", "Units", "Quantity", "UserComment1", "Pages"]
+    assert list(result["items"][0]) == [
+        "Caption",
+        "Units",
+        "Quantity",
+        "UserComment1",
+        "Pages",
+        "Brand",
+        "Article",
+        "Note",
+    ]
     assert result["items"][0]["Quantity"] == quantity
 
 

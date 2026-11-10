@@ -3,7 +3,7 @@
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, model_validator
 
@@ -20,13 +20,16 @@ class Contract(BaseModel):
 
 
 class SpecificationItem(Contract):
-    """Машинный контракт 1С: ровно пять строк, без технических метаданных."""
+    """Восемь строковых полей экспорта; старые записи получают пустые новые поля."""
 
     Caption: StrictStr = Field(min_length=1, max_length=20000)
     Units: StrictStr = Field(min_length=1, max_length=100)
     Quantity: StrictStr = Field(min_length=1, max_length=100)
     UserComment1: StrictStr = Field(min_length=1, max_length=200)
     Pages: StrictStr = Field(pattern=r"^[1-9]\d*$")
+    Brand: StrictStr = Field(default="", max_length=2000)
+    Article: StrictStr = Field(default="", max_length=4000)
+    Note: StrictStr = Field(default="", max_length=20000)
 
 
 class Export(Contract):
@@ -38,6 +41,8 @@ class Export(Contract):
 class Row(Contract):
     """Промежуточная строка VLM с физическим идентификатором табличного фрагмента."""
 
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
+
     row_id: StrictStr = Field(min_length=1, max_length=200)
     caption: StrictStr = Field(max_length=20000)
     designation: StrictStr = Field(max_length=4000)
@@ -47,15 +52,21 @@ class Row(Contract):
     continuation: bool
     continues_next: bool
     verified: bool
+    brand: StrictStr = Field(default="", max_length=2000)
+    article: StrictStr = Field(default="", max_length=4000)
+    note: StrictStr = Field(default="", max_length=20000)
 
 
 class PageExtraction(Contract):
     """Внутренний ответ модели; эти diagnostics не попадают в экспорт 1С."""
 
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
+
     rows: list[Row] = Field(max_length=2000)
     group_context: list[StrictStr] = Field(max_length=30)
-    warnings: list[StrictStr] = Field(max_length=200)
+    warnings: list[Annotated[StrictStr, Field(max_length=600)]] = Field(max_length=200)
     completeness: Literal["complete", "uncertain", "not_specification"]
+    article_header: StrictStr = Field(default="", max_length=300)
 
     @model_validator(mode="after")
     def unique_physical_ids(self) -> Self:
@@ -92,6 +103,7 @@ class Carryover(Contract):
     pending: Row | None = None
     source_pages: list[int] = Field(default_factory=list)
     group_context: list[str] = Field(default_factory=list)
+    article_header: StrictStr = Field(default="", max_length=300)
 
 
 class JobState(StrEnum):
@@ -140,6 +152,13 @@ class Event(Contract):
     type: str
     data: dict
     timestamp: datetime = Field(default_factory=utcnow)
+
+    def public_data(self) -> dict:
+        """Дополняет старые item-события на выдаче, сохраняя исходный durable журнал."""
+        data = dict(self.data)
+        if self.type == "item_validated":
+            data["item"] = SpecificationItem.model_validate(data["item"]).model_dump()
+        return data
 
 
 class Job(Contract):

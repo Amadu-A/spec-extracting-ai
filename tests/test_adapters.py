@@ -63,6 +63,17 @@ async def test_vlm_wire_contract(finish, expected):
         "data:image/png;base64,"
     )
     assert "authorization" not in requests[0].headers
+    row_schema = payload["response_format"]["json_schema"]["schema"]["$defs"]["Row"]
+    assert (
+        payload["response_format"]["json_schema"]["schema"]["properties"]["warnings"]["items"][
+            "maxLength"
+        ]
+        == 600
+    )
+    assert {"brand", "article", "note"} <= set(row_schema["required"])
+    assert all(
+        row_schema["properties"][key]["type"] == "string" for key in ("brand", "article", "note")
+    )
     await model.close()
 
 
@@ -115,9 +126,9 @@ def test_excel_formula_injection_does_not_change_value():
             )
         ]
     )
-    sheet = load_workbook(BytesIO(build_excel(export, [])), data_only=False)["Спецификация"]
-    assert sheet["A2"].value == export.items[0].Caption and sheet["A2"].data_type == "s"
-    assert sheet["C2"].value == "001,50"
+    sheet = load_workbook(BytesIO(build_excel(export, [])), data_only=False)["Лист_1"]
+    assert sheet["C2"].value == export.items[0].Caption and sheet["C2"].data_type == "s"
+    assert sheet["E2"].value == "001,50"
 
 
 def test_layered_settings(tmp_path):
