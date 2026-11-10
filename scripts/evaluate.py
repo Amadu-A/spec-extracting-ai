@@ -2,13 +2,15 @@
 """Реальный headless API-прогон четырёх комплектов и матрица сравнения с baseline.
 
 Нужен app API-key текущего owner в Settings.API_KEYS. Результаты и названия товаров
-сохраняются в ignored reports/live; открытый отчёт содержит только агрегаты.
+сохраняются только в ignored reports/live. reports/quality.md — статический
+отчёт репозитория, эта утилита его не изменяет.
 """
 
 import argparse
 import asyncio
 import json
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from time import perf_counter
 
 import httpx
@@ -16,6 +18,34 @@ import httpx
 from app.core.settings import Settings
 from app.domain.models import Export
 from app.domain.quality import compare_exports, compare_reviewed_fields
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def output_directory(directory: Path) -> Path:
+    """Разрешает только reports/live проекта, включая проверку переходов и symlink.
+
+    Относительные --output разрешаются от корня проекта на Windows и Linux.
+    Проверка выполняется до записи файлов и обращения к API.
+    """
+    root = PROJECT_ROOT.resolve()
+    resolved = (directory if directory.is_absolute() else root / directory).resolve()
+    if not resolved.is_relative_to(root / "reports" / "live"):
+        raise ValueError("Отчёты разрешено сохранять только в reports/live/ этого проекта")
+    return resolved
+
+
+def write_artifact(directory: Path, filename: str, content: str) -> None:
+    """Атомарно заменяет отчёт, не изменяя цель существующей файловой ссылки."""
+    temporary = None
+    try:
+        with NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        temporary.replace(directory / filename)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def find_pairs(directory: Path) -> list[tuple[Path, Path]]:
@@ -37,7 +67,8 @@ def find_pairs(directory: Path) -> list[tuple[Path, Path]]:
 
 
 def write_report(directory: Path, results: list[dict], mode: str) -> None:
-    """Сохраняет все field/page differences и компактную проверяемую Markdown-матрицу."""
+    """Записывает JSON и Markdown-матрицу только в игнорируемый каталог отчётов."""
+    directory = output_directory(directory)
     directory.mkdir(parents=True, exist_ok=True)
     for row in results:
         if row.get("document_pages"):
@@ -46,12 +77,14 @@ def write_report(directory: Path, results: list[dict], mode: str) -> None:
                 known.get(number, {"pdf_page": number, "baseline": 0, "actual": 0, "exact": 0})
                 for number in range(1, row["document_pages"] + 1)
             ]
-    (directory / "quality.json").write_text(
+    write_artifact(
+        directory,
+        "quality.json",
         json.dumps({"mode": mode, "datasets": results}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
     )
+    relative = directory.relative_to(PROJECT_ROOT.resolve())
     lines = [
-        "<!-- reports/quality.md -->",
+        f"<!-- {(relative / 'quality.md').as_posix()} -->",
         "# Фактическое сравнение с baseline",
         "",
         f"Режим: {mode}. Baseline не является вручную проверенным golden. Exact F1 измеряет полное совпадение пяти полей, а не абсолютную полноту распознавания.",
@@ -85,7 +118,7 @@ def write_report(directory: Path, results: list[dict], mode: str) -> None:
     lines.extend(
         [
             "",
-            f"Подробные различия по пяти полям и PDF-страницам: `{(directory / 'quality.json').as_posix()}` (локальный файл, исключён из Git).",
+            f"Подробные различия по пяти полям и PDF-страницам: `{(relative / 'quality.json').as_posix()}` (локальный файл, исключён из Git).",
             "",
             "Изменённые строки — кандидаты для ручной сверки, не автоматически исправленные данные. Различия в Caption могут быть полезными уточнениями исходного PDF. Проверка JSON-схемы не доказывает отсутствие пропусков.",
         ]
@@ -104,19 +137,19 @@ def write_report(directory: Path, results: list[dict], mode: str) -> None:
             lines.append(
                 f"| {page['pdf_page']} | {page['baseline']} | {page['actual']} | {page['exact']} |"
             )
-    Path("reports").mkdir(exist_ok=True)
-    Path("reports/quality.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_artifact(directory, "quality.md", "\n".join(lines) + "\n")
 
 
 async def evaluate(arguments) -> None:
     """Использует тот же REST API, что 1С/Telegram; браузер не нужен."""
+    directory = await asyncio.to_thread(output_directory, arguments.output)
     settings = Settings()
     if arguments.owner not in settings.api_keys:
         raise ValueError("В API_KEYS .env отсутствует указанный owner")
     pairs = find_pairs(arguments.examples)
     if len(pairs) != 4:
         raise ValueError(f"Ожидаются все четыре комплекта PDF/JSON, найдено {len(pairs)}")
-    arguments.output.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
     reports = []
     manifest = json.loads(arguments.manifest.read_text(encoding="utf-8"))
     reviewed = json.loads(
@@ -167,8 +200,8 @@ async def evaluate(arguments) -> None:
             response = await client.get(f"/api/v1/extractions/{status['job_id']}/snapshot")
             response.raise_for_status()
             actual = Export.model_validate(response.json()["partial"])
-            (arguments.output / (dataset + ".json")).write_text(
-                actual.model_dump_json(indent=2), encoding="utf-8"
+            await asyncio.to_thread(
+                write_artifact, directory, dataset + ".json", actual.model_dump_json(indent=2)
             )
             warnings, offset = [], 0
             while True:
@@ -182,9 +215,11 @@ async def evaluate(arguments) -> None:
                 offset += len(batch["warnings"])
                 if offset >= batch["total"]:
                     break
-            (arguments.output / (dataset + ".diagnostics.json")).write_text(
+            await asyncio.to_thread(
+                write_artifact,
+                directory,
+                dataset + ".diagnostics.json",
                 json.dumps({"status": status, "warnings": warnings}, ensure_ascii=False, indent=2),
-                encoding="utf-8",
             )
             reports.append(
                 {
@@ -199,8 +234,11 @@ async def evaluate(arguments) -> None:
                     ),
                 }
             )
-            write_report(
-                arguments.output, reports, "реальный REST API → RabbitMQ → worker → shared-vlm"
+            await asyncio.to_thread(
+                write_report,
+                directory,
+                reports,
+                "реальный REST API → RabbitMQ → worker → shared-vlm",
             )
 
 
@@ -213,7 +251,12 @@ def main() -> None:
     parser.add_argument(
         "--manifest", type=Path, default=Path("tests/fixtures/corpus-manifest.json")
     )
-    parser.add_argument("--output", type=Path, default=Path("reports/live"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("reports/live"),
+        help="reports/live/ или вложенный каталог; остальные пути запрещены",
+    )
     parser.add_argument("--timeout", type=int, default=7200)
     asyncio.run(evaluate(parser.parse_args()))
 

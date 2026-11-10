@@ -17,7 +17,7 @@ fi
 if [[ " ${*} " == *' --live '* ]]; then
   if [[ " ${*} " == *' --browser '* ]]; then marker=''; else marker='not browser'; fi
 fi
-args=(--cov=app --cov-report=term-missing --cov-report=json:reports/coverage.json)
+args=(--cov=app --cov-report=term-missing --cov-report=json:reports/live/coverage.json)
 if [[ " ${*} " == *' --live '* ]]; then args+=(--postgres --broker --vlm); fi
 [[ -z "$marker" ]] || args+=(-m "$marker")
 if [[ " ${*} " == *' --docker '* ]]; then args+=(--docker); fi

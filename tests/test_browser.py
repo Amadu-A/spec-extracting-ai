@@ -88,8 +88,8 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server, 
         expect(prompt).to_have_value("Тестовые инструкции текущей сессии")
         page.locator("[data-prompt-restore]").click()
         expect(prompt).to_have_value(original)
-        Path("test-results").mkdir(exist_ok=True)
-        page.screenshot(path="test-results/prompt-modal.png")
+        Path("reports/live/browser").mkdir(parents=True, exist_ok=True)
+        page.screenshot(path="reports/live/browser/prompt-modal.png")
         page.locator("[data-prompt-close]").first.click()
         page.locator("[data-file]").set_input_files(
             {"name": "project.pdf", "mimeType": "application/pdf", "buffer": pdf_bytes}
@@ -171,7 +171,7 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server, 
         page.locator("[data-warnings-open]").click()
         expect(page.locator("[data-warnings-dialog]")).to_be_visible()
         page.locator("[data-warnings-close]").click()
-        page.screenshot(path="test-results/analysis-page.png")
+        page.screenshot(path="reports/live/browser/analysis-page.png")
         page.locator("[data-thumbnails] button").first.click()
         page.once("dialog", lambda dialog: dialog.accept())
         page.locator("[data-retry]").click()
@@ -182,7 +182,7 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server, 
         expect(page.locator("[data-journal]")).to_contain_text("Фактические этапы появятся")
         for width in (800, 375):
             page.set_viewport_size({"width": width, "height": 950})
-            page.screenshot(path=f"test-results/responsive-{width}.png")
+            page.screenshot(path=f"reports/live/browser/responsive-{width}.png")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (
                 page.evaluate(
                     "({width:innerWidth, scroll:document.documentElement.scrollWidth, overflow:[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(0,8).map(e=>[e.tagName,e.className,e.getBoundingClientRect().width])})"
@@ -327,10 +327,10 @@ def test_real_pdf_vlm_ui_json_excel(root, web_server, tmp_path, request):
         assert all(item["Pages"] == "1" for item in result["items"])
         page.locator("[data-menu-toggle]").click()
         page.locator("[data-toggle-view]").click()
-        Path("test-results").mkdir(exist_ok=True)
-        page.screenshot(path="test-results/real-vlm-analysis.png")
+        Path("reports/live/browser").mkdir(parents=True, exist_ok=True)
+        page.screenshot(path="reports/live/browser/real-vlm-analysis.png")
         page.locator("[data-prompt-open]").click()
         expect(page.locator("[data-prompt-dialog]")).to_be_visible()
-        page.screenshot(path="test-results/real-vlm-prompt.png")
+        page.screenshot(path="reports/live/browser/real-vlm-prompt.png")
         assert not errors
         browser.close()

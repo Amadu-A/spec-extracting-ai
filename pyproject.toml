@@ -26,6 +26,7 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 ignore = ["E501"]
 [tool.coverage.run]
+data_file = "reports/live/.coverage"
 branch = true
 source = ["app"]
 [tool.coverage.report]

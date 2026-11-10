@@ -63,6 +63,6 @@ bash scripts/test.sh --browser --docker
 uv run --frozen python -m scripts.evaluate --api-url http://127.0.0.1:8083 --owner evaluation
 ```
 
-Нужны все PDF/JSON в `examples/` и ключ `evaluation` в `.env`. Manifest входных шифров описан в `tests/fixtures/README.md`. Матрица: [reports/quality.md](reports/quality.md); детали с наименованиями — только в игнорируемом `reports/live/`.
+Нужны все PDF/JSON в `examples/` и ключ `evaluation` в `.env`. Manifest входных шифров описан в `tests/fixtures/README.md`. Новые JSON и Markdown-матрица сохраняются в `reports/live/quality.json` и `reports/live/quality.md`. `--output` разрешает только `reports/live/` и его подкаталоги. [reports/quality.md](reports/quality.md) — статический отчёт репозитория, evaluate его не меняет. Coverage и браузерные снимки проверок также находятся только в `reports/live/`. Запуск test/up/evaluate не изменяет отслеживаемые файлы Git.
 
 Контракты, примеры API и эксплуатация: [docs/API.md](docs/API.md), [docs/architecture.md](docs/architecture.md), [docs/operations.md](docs/operations.md). Ограничения и результаты приёмки: [reports/implementation-report.md](reports/implementation-report.md).

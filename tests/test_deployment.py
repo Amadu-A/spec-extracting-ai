@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_script_artifacts import checkout_tree, tracked_state
+
 ROOT = Path(__file__).resolve().parents[1]
 PASSWORD = "S p'ec\"!$#&\\()=end  "
 USER = "specification"
@@ -555,3 +557,17 @@ def test_linux_gate_uses_playwright_node_without_system_node(tmp_path):
     assert completed.returncode == 0, completed.stderr
     assert "SYSTEM_NODE_CALLED" not in completed.stderr
     assert "tests 4" in completed.stdout
+
+
+def test_up_leaves_tracked_files_and_env_unchanged(deployment, tmp_path):
+    """Успешный up.sh с Docker double пишет только ignored data и сохраняет чистый Git."""
+    state, run = deployment
+    root = Path(state["repository"])
+    shutil.copytree(checkout_tree(tmp_path / "tracked"), root, dirs_exist_ok=True)
+    before = tracked_state(root)
+    secret_file = (root / ".env").read_bytes()
+    completed = run()
+    assert completed.returncode == 0, completed.stderr
+    assert state["up_count"] == 1
+    assert tracked_state(root) == before
+    assert (root / ".env").read_bytes() == secret_file

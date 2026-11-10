@@ -30,7 +30,7 @@ $NodeBinary = & .\.venv\Scripts\python.exe -c 'from playwright._impl._driver imp
 if ($LASTEXITCODE -ne 0) { throw 'Не удалось найти Node в установленном Playwright' }
 Invoke-Checked ($NodeBinary.Trim()) @('--test', 'tests/frontend/state.test.js')
 if ($Browser) { Invoke-Checked uv @('run', '--frozen', 'playwright', 'install', 'chromium') }
-$TestArguments = @('run', '--frozen', 'pytest', '--cov=app', '--cov-report=term-missing', '--cov-report=json:reports/coverage.json')
+$TestArguments = @('run', '--frozen', 'pytest', '--cov=app', '--cov-report=term-missing', '--cov-report=json:reports/live/coverage.json')
 if (-not $Browser -and -not $Live) { $TestArguments += @('-m', 'not live and not browser') }
 elseif ($Browser -and -not $Live) {
     $TestArguments += @('-m', 'not live')
