@@ -44,24 +44,26 @@ async def test_headless_e2e_json_excel_sse(root, client, pdf_bytes):
     result = await client.get(status["links"]["json"], headers=HEADERS)
     assert result.status_code == 200
     payload = result.json()
-    assert list(payload) == ["items"]
+    assert list(payload) == ["file_name", "items"]
+    assert payload["file_name"] == "sample.pdf"
     assert [x["Pages"] for x in payload["items"]] == ["1", "2"]
     assert all(x["Quantity"] == "2,5" for x in payload["items"])
     excel = await client.get(status["links"]["xlsx"], headers=HEADERS)
     book = load_workbook(BytesIO(excel.content))
     sheet = book["Лист_1"]
-    assert sheet.max_column == 18 and sheet.max_row == 3
+    assert sheet.max_column == 19 and sheet.max_row == 3
     mapping = {
         "Caption": "C",
         "Units": "D",
         "Quantity": "E",
-        "UserComment1": "P",
-        "Pages": "Q",
+        "UserComment1": "Q",
+        "Pages": "R",
         "Brand": "M",
         "Article": "N",
-        "Note": "R",
+        "Note": "S",
     }
     for index, item in enumerate(payload["items"], start=2):
+        assert sheet[f"P{index}"].value == payload["file_name"]
         assert len(item) == 8
         for field, column in mapping.items():
             assert (sheet[f"{column}{index}"].value or "") == item[field]

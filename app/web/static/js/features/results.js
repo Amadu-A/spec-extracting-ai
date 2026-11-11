@@ -1,6 +1,6 @@
 // app/web/static/js/features/results.js
 /** Безопасная подсветка JSON, реальная телеметрия и журнал фактических этапов. */
-import { completed, running } from '../state.js';
+import { completed, exportPayload, running } from '../state.js';
 import { copyText } from '../api.js';
 
 const names = { queued: 'В очереди', running: 'Анализ документа', completed: 'Анализ завершён',
@@ -30,7 +30,7 @@ export function setupResults(state, notify) {
     menu.hidden = !menu.hidden; event.currentTarget.setAttribute('aria-expanded', String(!menu.hidden));
   });
   document.querySelector('[data-copy]').addEventListener('click', async () => {
-    try { await copyText(JSON.stringify({ items: state.items }, null, 2)); notify('Подтверждённый JSON скопирован'); }
+    try { await copyText(JSON.stringify(exportPayload(state), null, 2)); notify('Подтверждённый JSON скопирован'); }
     catch (failure) { notify(failure.message); }
     menu.hidden = true;
   });
@@ -45,7 +45,7 @@ export function setupResults(state, notify) {
   });
   /** Рисует изменившийся текст с сохранением ручного scroll при чтении старых строк. */
   function render() {
-    const text = state.view === 'validated' ? JSON.stringify({ items: state.items }, null, 2) : state.raw;
+    const text = state.view === 'validated' ? JSON.stringify(exportPayload(state), null, 2) : state.raw;
     if (previousText !== text) {
       const atBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 50;
       const fragment = document.createDocumentFragment();

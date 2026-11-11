@@ -342,7 +342,7 @@ async def events(
 
 @router.get("/extractions/{job_id}/result.json", tags=["Экспорт"], response_model=Export)
 async def result_json(job_id: UUID, request: Request, actor: Actor) -> Response:
-    """Возвращает items с восемью строковыми полями после полного завершения."""
+    """Возвращает серверное file_name и items из восьми полей после полного завершения."""
     data = await container(request).exports.json_bytes(str(job_id), actor.owner)
     return Response(
         data,
@@ -360,7 +360,7 @@ async def result_json(job_id: UUID, request: Request, actor: Actor) -> Response:
     response_class=Response,
     responses={
         200: {
-            "description": "Excel по шаблону из 18 столбцов с теми же восемью значениями JSON",
+            "description": "Excel из 19 столбцов: источник PDF и восемь полей каждой позиции JSON",
             "content": {
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
                     "schema": {"type": "string", "format": "binary"}

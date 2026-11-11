@@ -9,6 +9,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -520,7 +521,7 @@ def test_hung_docker_client_is_bounded(deployment):
     os.name == "nt", reason="Linux shell проверяется на Linux; Windows gate запускает Node напрямую"
 )
 def test_linux_gate_uses_playwright_node_without_system_node(tmp_path):
-    """Выполняет настоящие четыре JS-теста, когда вызов системного node запрещён."""
+    """Выполняет настоящие JS-тесты, когда вызов системного node запрещён."""
     git_bash = Path("C:/Program Files/Git/bin/bash.exe")
     bash = str(git_bash) if git_bash.exists() else shutil.which("bash")
     if bash is None:
@@ -556,7 +557,8 @@ def test_linux_gate_uses_playwright_node_without_system_node(tmp_path):
     )
     assert completed.returncode == 0, completed.stderr
     assert "SYSTEM_NODE_CALLED" not in completed.stderr
-    assert "tests 4" in completed.stdout
+    count = re.search(r"\btests ([1-9]\d*)\b", completed.stdout)
+    assert count and re.search(rf"\bpass {count.group(1)}\b", completed.stdout)
 
 
 def test_up_leaves_tracked_files_and_env_unchanged(deployment, tmp_path):

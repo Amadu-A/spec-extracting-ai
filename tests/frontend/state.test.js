@@ -2,7 +2,7 @@
 /** Регрессии UI-state: нормализация страниц, ручной просмотр, replay и восстановление. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initialState, applyEvent, parsePages, restoreSnapshot, completed } from '../../app/web/static/js/state.js';
+import { initialState, applyEvent, exportPayload, parsePages, restoreSnapshot, completed } from '../../app/web/static/js/state.js';
 
 test('Диапазоны страниц: сортировка, дубликаты и физические границы', () => {
   assert.deepEqual(parsePages(' 3-5, 1, 3 ', 10), [1, 3, 4, 5]);
@@ -47,4 +47,17 @@ test('Snapshot восстанавливает current и ручной viewed н�
   assert.equal(state.viewed_pdf_page, 9);
   assert.equal(completed('cancelled'), false);
   assert.equal(completed('completed_with_warnings'), true);
+  assert.deepEqual(exportPayload(state), { file_name: 'file.pdf', items: [] });
+});
+
+test('Подтверждённый JSON использует имя сервера и не меняет исходный поток', () => {
+  const state = initialState();
+  assert.deepEqual(exportPayload(state), { file_name: '', items: [] });
+  state.document = { filename: 'Проект "А".pdf' }; state.raw = '{"rows":[]}';
+  applyEvent(state, 'item_validated', { item: { Caption: 'Позиция' } }, 1);
+  const value = JSON.parse(JSON.stringify(exportPayload(state)));
+  assert.deepEqual(value, { file_name: 'Проект "А".pdf', items: [{ Caption: 'Позиция' }] });
+  assert.equal(state.raw, '{"rows":[]}');
+  state.document = { filename: 'Новый.pdf' }; state.items = [];
+  assert.deepEqual(exportPayload(state), { file_name: 'Новый.pdf', items: [] });
 });

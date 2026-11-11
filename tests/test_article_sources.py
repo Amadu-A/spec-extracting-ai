@@ -40,7 +40,7 @@ def expected_articles(name: str, baseline: Export) -> Export:
         article = annotation["articles"].get(str(index), "")
         assert not item.Article or item.Article == article, (name, index)
         items.append(item.model_copy(update={"Article": article}))
-    return Export(items=items)
+    return Export(file_name=baseline.file_name, items=items)
 
 
 def compare_article_rows(expected: Export, actual: Export) -> dict:

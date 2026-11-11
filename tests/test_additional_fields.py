@@ -117,6 +117,7 @@ async def test_legacy_snapshot_exports_and_sse_without_rewriting_history(root, c
         await client.get(f"/api/v1/extractions/{identifier}/snapshot", headers=HEADERS)
     ).json()
     assert snapshot["partial"] == exported
+    assert exported["file_name"] == "sample.pdf"
     assert list(exported["items"][0]) == FIELDS
     assert all(exported["items"][0][field] == "" for field in FIELDS[5:])
     stream = await client.get(f"/api/v1/extractions/{identifier}/events", headers=HEADERS)
@@ -182,7 +183,7 @@ async def test_new_fields_reach_all_public_results_after_carryover(
         "Article": "00042/AB",
         "Note": "К1",
     }
-    assert result == {"items": [expected]}
+    assert result == {"file_name": "sample.pdf", "items": [expected]}
     snapshot = (await client.get(prefix + "/snapshot", headers=headers)).json()
     assert snapshot["partial"] == result
     stream = (await client.get(prefix + "/events", headers=headers)).text
@@ -197,7 +198,8 @@ async def test_new_fields_reach_all_public_results_after_carryover(
     excel = await client.get(prefix + "/result.xlsx", headers=headers)
     sheet = load_workbook(BytesIO(excel.content)).active
     assert sheet["M2"].value == expected["Brand"] and sheet["N2"].value == "00042/AB"
-    assert sheet["R2"].value == expected["Note"] and sheet["Q2"].value == "1"
+    assert sheet["P2"].value == "sample.pdf"
+    assert sheet["S2"].value == expected["Note"] and sheet["R2"].value == "1"
 
 
 @pytest.mark.parametrize(

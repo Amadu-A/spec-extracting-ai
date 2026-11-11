@@ -114,6 +114,6 @@ async def test_real_article_priority_and_merged_cells(root, client, request, cas
                     "Note": "Для ИТП",
                 }
             )
-        assert job.export().model_dump() == {"items": expected}
+        assert job.export().model_dump() == {"file_name": f"{case}.pdf", "items": expected}
     finally:
         await model.close()

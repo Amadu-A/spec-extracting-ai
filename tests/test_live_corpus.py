@@ -67,6 +67,7 @@ async def test_all_documents_with_real_vlm(root, client, request):
             await root.processor.execute(identifier)
             job = await root.repository.get(identifier)
             actual = job.export()
+            assert actual.file_name == pdf.name
             (output / f"{name}.json").write_text(actual.model_dump_json(indent=2), encoding="utf8")
             (output / f"{name}.raw.json").write_text(
                 json.dumps(
@@ -144,18 +145,19 @@ async def test_all_documents_with_real_vlm(root, client, request):
             (output / f"{name}.xlsx").write_bytes(excel_response.content)
             book = load_workbook(BytesIO(excel_response.content))
             sheet = book.active
-            assert book.sheetnames == ["Лист_1"] and sheet.max_column == 18
+            assert book.sheetnames == ["Лист_1"] and sheet.max_column == 19
             assert sheet.max_row == len(actual.items) + 1
             for index, item in enumerate(actual.items, start=2):
+                assert sheet[f"P{index}"].value == actual.file_name
                 for field, column in {
                     "Caption": "C",
                     "Units": "D",
                     "Quantity": "E",
                     "Brand": "M",
                     "Article": "N",
-                    "UserComment1": "P",
-                    "Pages": "Q",
-                    "Note": "R",
+                    "UserComment1": "Q",
+                    "Pages": "R",
+                    "Note": "S",
                 }.items():
                     assert (sheet[f"{column}{index}"].value or "") == getattr(item, field)
             if reviewed["located_rows"] != reviewed["reviewed_rows"] or any(
@@ -271,6 +273,7 @@ async def test_real_vlm_article_column_and_leading_zeros(root, client, request):
         )
         assert job.state in ("completed", "completed_with_warnings")
         assert job.export().model_dump() == {
+            "file_name": "synthetic-article.pdf",
             "items": [
                 {
                     "Caption": "Клапан DN100 Ридан",
@@ -282,7 +285,7 @@ async def test_real_vlm_article_column_and_leading_zeros(root, client, request):
                     "Article": "00042/AB-1",
                     "Note": "Для ИТП",
                 }
-            ]
+            ],
         }
     finally:
         await model.close()

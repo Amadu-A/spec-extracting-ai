@@ -33,8 +33,11 @@ class SpecificationItem(Contract):
 
 
 class Export(Contract):
-    """Единственная допустимая верхняя структура JSON-экспорта."""
+    """Имя исходного PDF задаётся сервером; старые эталоны читаются с пустым именем."""
 
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
+
+    file_name: StrictStr = Field(default="", max_length=180)
     items: list[SpecificationItem]
 
 
@@ -216,7 +219,9 @@ class Job(Contract):
 
     def export(self) -> Export:
         """Собирает результат в физическом порядке без удаления одинаковых товаров."""
-        return Export(items=[e.item for page in self.pages for e in page.items])
+        return Export(
+            file_name=self.filename, items=[e.item for page in self.pages for e in page.items]
+        )
 
 
 class Session(Contract):

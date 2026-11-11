@@ -1,5 +1,5 @@
 # tests/test_excel_template.py
-"""Регрессия 18-колоночного шаблона, сохранности значений и безопасности XLSX."""
+"""Регрессия 19-колоночного экспорта, сохранности шаблона и безопасности XLSX."""
 
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
@@ -8,6 +8,7 @@ from zipfile import ZipFile
 
 import pytest
 from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 from app.core.settings import Settings
 from app.domain.models import Export, SpecificationItem, Warning
@@ -19,9 +20,9 @@ MAPPING = {
     "E": "Quantity",
     "M": "Brand",
     "N": "Article",
-    "P": "UserComment1",
-    "Q": "Pages",
-    "R": "Note",
+    "Q": "UserComment1",
+    "R": "Pages",
+    "S": "Note",
 }
 HEADERS = [
     "Номер по схеме",
@@ -39,6 +40,7 @@ HEADERS = [
     "Бренд",
     "Артикул",
     "Раздел",
+    "Источник/Наименование файла",
     "Шифр документа",
     "Страница документа",
     "Примечание",
@@ -66,25 +68,36 @@ def item(**changes) -> SpecificationItem:
 def test_template_row_counts_values_and_styles(count):
     """Количество строк точно равно заданию; исходные стили и фиксированная валюта сохранены."""
     source = load_workbook(TEMPLATE_PATH)
-    result = Export(items=[item(Caption=f"Позиция {index}") for index in range(count)])
+    result = Export(
+        file_name="267-РД-ИТП.АТМД.pdf",
+        items=[item(Caption=f"Позиция {index}") for index in range(count)],
+    )
     data = build_excel(result, [Warning(pdf_page=1, code="test", message="Проверка")])
     book = load_workbook(BytesIO(data))
     assert book.sheetnames == ["Лист_1"]
     sheet, template = book.active, source.active
-    assert sheet.max_column == 18 and sheet.max_row == count + 1
+    assert sheet.max_column == 19 and sheet.max_row == count + 1
     assert [cell.value for cell in sheet[1]] == HEADERS
-    assert {key: dict(value) for key, value in sheet.column_dimensions.items()} == {
-        key: dict(value) for key, value in template.column_dimensions.items()
-    }
+    for key, dimension in template.column_dimensions.items():
+        column = column_index_from_string(key)
+        target = get_column_letter(column if column < 16 else column + 1)
+        expected = dict(dimension)
+        if column >= 16:
+            expected["min"] = expected["max"] = str(column + 1)
+        assert dict(sheet.column_dimensions[target]) == expected
+    assert sheet.column_dimensions["P"].width == 30
     assert sheet.sheet_format == template.sheet_format
     for index, row in enumerate(result.items, start=2):
         original = min(index, 47)
         assert sheet.row_dimensions[index].height == template.row_dimensions[original].height
         for cell in sheet[index]:
-            assert cell._style == template.cell(original, cell.column)._style
+            source_column = cell.column if cell.column < 16 else max(16, cell.column - 1)
+            assert cell._style == template.cell(original, source_column)._style
             if cell.column_letter in MAPPING:
                 assert cell.value == getattr(row, MAPPING[cell.column_letter])
                 assert cell.data_type == "s"
+            elif cell.column_letter == "P":
+                assert cell.value == result.file_name and cell.data_type == "s"
             else:
                 assert cell.value == ("RUB" if cell.column_letter == "G" else None)
     assert not any(index > count + 1 for index in sheet.row_dimensions)
@@ -105,17 +118,24 @@ def test_packaged_template_contains_no_product_values():
 
 
 @pytest.mark.parametrize(
-    "field", ["Caption", "Units", "Quantity", "UserComment1", "Brand", "Article", "Note"]
+    "field",
+    ["Caption", "Units", "Quantity", "UserComment1", "Brand", "Article", "Note", "file_name"],
 )
 @pytest.mark.parametrize(
     "value", ['=HYPERLINK("https://evil.invalid")', "+1+1", "-2+1", "@SUM(1,2)"]
 )
 def test_all_untrusted_fields_remain_literal_text(field, value):
     """Формулы в любом доступном текстовом поле не исполняются и не получают апостроф."""
-    result = Export(items=[item(**{field: value})])
+    result = (
+        Export(file_name=value, items=[item()])
+        if field == "file_name"
+        else Export(items=[item(**{field: value})])
+    )
     data = build_excel(result, [])
     book = load_workbook(BytesIO(data), data_only=False)
-    column = next(column for column, name in MAPPING.items() if name == field)
+    column = (
+        "P" if field == "file_name" else next(c for c, name in MAPPING.items() if name == field)
+    )
     assert book.active[f"{column}2"].value == value
     assert book.active[f"{column}2"].data_type == "s"
     with ZipFile(BytesIO(data)) as archive:
@@ -126,14 +146,19 @@ def test_empty_optionals_and_concurrent_exports_are_independent():
     """Пустые поля не берутся из шаблона/соседнего запроса, общий ресурс не мутирует."""
     before = TEMPLATE_PATH.read_bytes()
     exports = [
-        Export(items=[item(Caption=f"Запрос {i}", Brand="", Article="", Note="")]) for i in range(8)
+        Export(
+            file_name=f"Файл {i}.pdf",
+            items=[item(Caption=f"Запрос {i}", Brand="", Article="", Note="")],
+        )
+        for i in range(8)
     ]
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(lambda result: build_excel(result, []), exports))
     for index, data in enumerate(results):
         sheet = load_workbook(BytesIO(data)).active
         assert sheet["C2"].value == f"Запрос {index}"
-        assert all(sheet[f"{column}2"].value is None for column in ("M", "N", "R"))
+        assert sheet["P2"].value == f"Файл {index}.pdf"
+        assert all(sheet[f"{column}2"].value is None for column in ("M", "N", "S"))
     assert TEMPLATE_PATH.read_bytes() == before
 
 
@@ -166,11 +191,15 @@ def test_template_matches_supplied_workbook():
 def test_export_at_default_item_limit():
     """20 000 позиций проходят весь XLSX-путь; последняя строка сохраняет точные значения."""
     count = Settings(_env_file=None).max_items
-    result = Export(items=[item(Caption=f"Граничная позиция {index}") for index in range(count)])
+    result = Export(
+        file_name="Источник.pdf",
+        items=[item(Caption=f"Граничная позиция {index}") for index in range(count)],
+    )
     data = build_excel(result, [])
     book = load_workbook(BytesIO(data), read_only=True)
     sheet = book.active
-    assert sheet.max_row == count + 1 and sheet.max_column == 18
+    assert sheet.max_row == count + 1 and sheet.max_column == 19
     last = next(sheet.iter_rows(min_row=count + 1, max_row=count + 1, values_only=True))
     assert last[2] == f"Граничная позиция {count - 1}"
     assert last[4] == "001,50" and last[13] == "0001/02-AB"
+    assert last[15] == "Источник.pdf" and last[16:19] == ("P", "3", "Для ИТП")

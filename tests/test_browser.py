@@ -117,8 +117,10 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server, 
             downloads[extension] = path
         exported = json.loads(downloads["json"].read_text(encoding="utf8"))
         sheet = load_workbook(downloads["xlsx"]).active
-        assert sheet.title == "Лист_1" and sheet.max_column == 18 and sheet.max_row == 3
+        assert exported["file_name"] == "project.pdf"
+        assert sheet.title == "Лист_1" and sheet.max_column == 19 and sheet.max_row == 3
         for index, item in enumerate(exported["items"], start=2):
+            assert sheet[f"P{index}"].value == exported["file_name"]
             assert len(item) == 8
             for field, column in {
                 "Caption": "C",
@@ -126,9 +128,9 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server, 
                 "Quantity": "E",
                 "Brand": "M",
                 "Article": "N",
-                "UserComment1": "P",
-                "Pages": "Q",
-                "Note": "R",
+                "UserComment1": "Q",
+                "Pages": "R",
+                "Note": "S",
             }.items():
                 assert (sheet[f"{column}{index}"].value or "") == item[field]
         page.locator("[data-page-number]").fill("3")
@@ -166,6 +168,14 @@ def test_ui_pdf_stream_exports_prompt_and_controls(root, pdf_bytes, web_server, 
         page.locator("[data-menu-toggle]").click()
         page.locator("[data-toggle-view]").click()
         expect(page.locator("[data-stream-state]")).to_contain_text("Подтверждённый")
+        assert json.loads(page.locator("[data-code]").inner_text()) == exported
+        page.evaluate(
+            "Object.defineProperty(navigator, 'clipboard', {value: {writeText: async value => {window.copiedJson = value}}})"
+        )
+        page.locator("[data-menu-toggle]").click()
+        page.locator("[data-copy]").click()
+        page.wait_for_function("window.copiedJson !== undefined")
+        assert json.loads(page.evaluate("window.copiedJson")) == exported
         for field in ("Brand", "Article", "Note"):
             expect(page.locator("[data-code]")).to_contain_text(f'"{field}"')
         page.locator("[data-warnings-open]").click()
@@ -311,7 +321,8 @@ def test_real_pdf_vlm_ui_json_excel(root, web_server, tmp_path, request):
             outputs[extension] = path
         result = json.loads(outputs["json"].read_text(encoding="utf8"))
         sheet = load_workbook(outputs["xlsx"]).worksheets[0]
-        assert sheet.max_column == 18 and sheet.max_row == len(result["items"]) + 1
+        assert result["file_name"] == source.name
+        assert sheet.max_column == 19 and sheet.max_row == len(result["items"]) + 1
         for index, item in enumerate(result["items"], start=2):
             for field, column in {
                 "Caption": "C",
@@ -319,9 +330,9 @@ def test_real_pdf_vlm_ui_json_excel(root, web_server, tmp_path, request):
                 "Quantity": "E",
                 "Brand": "M",
                 "Article": "N",
-                "UserComment1": "P",
-                "Pages": "Q",
-                "Note": "R",
+                "UserComment1": "Q",
+                "Pages": "R",
+                "Note": "S",
             }.items():
                 assert (sheet[f"{column}{index}"].value or "") == item[field]
         assert all(item["Pages"] == "1" for item in result["items"])

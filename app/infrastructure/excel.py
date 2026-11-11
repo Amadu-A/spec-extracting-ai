@@ -1,8 +1,8 @@
 # app/infrastructure/excel.py
 """Адаптер SpreadsheetExporter: копия утверждённого шаблона без демоданных.
 
-Заполняет только восемь зелёных столбцов; оформление и фиксированная валюта
-принадлежат ресурсу проекта. Предупреждения остаются в API диагностики.
+Добавляет источник между разделом и шифром документа, заполняет восемь полей
+позиции и серверное имя PDF. Предупреждения остаются в API диагностики.
 """
 
 import asyncio
@@ -11,6 +11,8 @@ from io import BytesIO
 from pathlib import Path
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 
 from app.domain.models import Export, Warning
 
@@ -19,12 +21,27 @@ ITEM_COLUMNS = {
     "Caption": "C",
     "Units": "D",
     "Quantity": "E",
-    "UserComment1": "P",
-    "Pages": "Q",
+    "UserComment1": "Q",
+    "Pages": "R",
     "Brand": "M",
     "Article": "N",
-    "Note": "R",
+    "Note": "S",
 }
+
+
+def add_source_column(sheet: Worksheet) -> None:
+    """Расширяет копию исходного шаблона, сохраняя стили и размеры прежних граф."""
+    sheet.insert_cols(16)
+    for column in range(18, 15, -1):
+        target = get_column_letter(column + 1)
+        dimension = copy(sheet.column_dimensions[get_column_letter(column)])
+        dimension.index = target
+        dimension.min = dimension.max = column + 1
+        sheet.column_dimensions[target] = dimension
+    sheet.column_dimensions["P"].width = 30
+    for index in range(1, sheet.max_row + 1):
+        sheet[f"P{index}"]._style = copy(sheet[f"Q{index}"]._style)
+    sheet["P1"] = "Источник/Наименование файла"
 
 
 class ExcelExporter:
@@ -44,6 +61,7 @@ def build_excel(result: Export, warnings: list[Warning]) -> bytes:
     """
     book = load_workbook(TEMPLATE_PATH)
     sheet = book["Лист_1"]
+    add_source_column(sheet)
     sample_row = sheet.max_row
     sample_cells = [(cell.column, copy(cell._style), cell.value) for cell in sheet[sample_row]]
     sample_dimension = copy(sheet.row_dimensions[sample_row])
@@ -60,6 +78,9 @@ def build_excel(result: Export, warnings: list[Warning]) -> bytes:
             cell = sheet[f"{column}{index}"]
             cell.value = getattr(item, field)
             cell.data_type = "s"
+        source = sheet[f"P{index}"]
+        source.value = result.file_name
+        source.data_type = "s"
     last_row = len(result.items) + 1
     if last_row < sample_row:
         sheet.delete_rows(last_row + 1, sample_row - last_row)

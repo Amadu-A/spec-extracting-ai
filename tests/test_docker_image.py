@@ -97,11 +97,12 @@ from openpyxl import load_workbook
 from app.domain.models import Export, SpecificationItem
 from app.infrastructure.excel import build_excel
 item=SpecificationItem(Caption='valve',Units='pcs',Quantity='001,50',UserComment1='P',Pages='1',Article='0001')
-book=load_workbook(BytesIO(build_excel(Export(items=[item]),[])))
+book=load_workbook(BytesIO(build_excel(Export(file_name='source.pdf',items=[item]),[])))
 sheet=book.worksheets[0]
-assert len(book.worksheets)==1 and sheet.max_column==18 and sheet.max_row==2
+assert len(book.worksheets)==1 and sheet.max_column==19 and sheet.max_row==2
 assert sheet['C2'].value=='valve' and sheet['N2'].value=='0001'
 assert sheet['E2'].value=='001,50' and sheet['G2'].value=='RUB'
+assert sheet['P2'].value=='source.pdf' and sheet['Q2'].value=='P' and sheet['R2'].value=='1'
 print(json.dumps({'uid':os.getuid(),'python_modules':count,'operations_import':'OK'}))
 """
         command = [

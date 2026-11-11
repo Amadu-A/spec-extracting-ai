@@ -7,6 +7,11 @@ export function initialState() {
     last_event_id: 0, revision: 0, items: [], raw: '', view: 'live', status: null };
 }
 
+/** Собирает подтверждённый результат с серверным именем PDF, отдельно от сырого потока VLM. */
+export function exportPayload(state) {
+  return { file_name: state.document?.filename || '', items: state.items };
+}
+
 /** Валидирует диапазоны до отправки; backend остаётся источником истины. */
 export function parsePages(expression, total) {
   if (!expression.trim()) throw new Error('Укажите страницы PDF');

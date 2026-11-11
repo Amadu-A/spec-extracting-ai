@@ -43,7 +43,8 @@ def test_quantity_string_is_preserved(quantity):
         Caption="Клапан", Units="шт.", Quantity=quantity, UserComment1="Проект", Pages="7"
     )
     result = Export(items=[item]).model_dump()
-    assert list(result) == ["items"]
+    assert list(result) == ["file_name", "items"]
+    assert result["file_name"] == ""
     assert list(result["items"][0]) == [
         "Caption",
         "Units",
