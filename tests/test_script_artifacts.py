@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -205,14 +206,29 @@ async def test_complete_evaluate_writes_only_ignored_reports(
 @pytest.mark.skipif(
     os.name == "nt", reason="Linux test.sh проверяется на Linux; Windows использует PowerShell gate"
 )
-def test_linux_test_script_reports_leave_tracked_files_unchanged(checkout, tmp_path):
-    """Реальный test.sh/Node с UV double проверяет пути coverage без вложенного запуска pytest."""
+@pytest.mark.parametrize("extra_js_test", [False, True], ids=["current-suite", "extended-suite"])
+def test_linux_test_script_reports_leave_tracked_files_unchanged(checkout, tmp_path, extra_js_test):
+    """Текущие JS-файлы и новая проверка не привязывают gate к числу тестов или старому HEAD."""
     bash_path = Path("C:/Program Files/Git/bin/bash.exe")
     bash = str(bash_path) if bash_path.exists() else shutil.which("bash")
     if bash is None:
         pytest.skip("Нужен Bash")
-    for name in ("scripts/test.sh", "pyproject.toml"):
+    for name in (
+        "scripts/test.sh",
+        "pyproject.toml",
+        "package.json",
+        "tests/frontend/state.test.js",
+        "app/web/static/js/state.js",
+    ):
         shutil.copyfile(ROOT / name, checkout / name)
+    if extra_js_test:
+        source = checkout / "tests/frontend/state.test.js"
+        source.write_text(
+            source.read_text(encoding="utf8")
+            + "\ntest('Дополнительный JS-тест рабочей копии', () => "
+            "assert.deepEqual(parsePages('1', 1), [1]));\n",
+            encoding="utf8",
+        )
     writer = tmp_path / "coverage_double.py"
     writer.write_text(
         "import pathlib,sys,tomllib\n"
@@ -244,7 +260,10 @@ def test_linux_test_script_reports_leave_tracked_files_unchanged(checkout, tmp_p
         timeout=30,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "tests 4" in completed.stdout
+    count = re.search(r"\btests ([1-9]\d*)\b", completed.stdout)
+    assert count and re.search(rf"\bpass {count.group(1)}\b", completed.stdout)
+    if extra_js_test:
+        assert "Дополнительный JS-тест рабочей копии" in completed.stdout
     assert (checkout / "reports/live/.coverage").is_file()
     assert (checkout / "reports/live/coverage.json").is_file()
     assert tracked_state(checkout) == before
