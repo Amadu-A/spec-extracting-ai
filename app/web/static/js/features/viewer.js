@@ -2,15 +2,15 @@
 /** Просмотр настоящих PNG: масштаб, ручная навигация, lazy thumbnails, pan/fullscreen. */
 
 /** Подключает controls PDF-вьюера к общей модели состояния. */
-export function setupViewer(state, changed, notify) {
-  const root = document.querySelector('[data-viewer]');
+export function setupViewer(state, changed, notify, options = {}) {
+  const root = options.root || document.querySelector('[data-viewer]');
   const image = root.querySelector('[data-page-image]');
   const canvas = root.querySelector('[data-canvas]');
   const strip = root.querySelector('[data-thumbnails]');
   let zoom = 1; let fit = true; let pan = false; let renderedDocument = null; let lastUrl = ''; let renderedPage = null;
   let origin = null;
   /** Разрешает preview URL только для текущего серверного документа. */
-  function preview(page, width) { return `/api/v1/documents/${state.document.id}/pages/${page}/preview?width=${width}`; }
+  function preview(page, width) { return options.preview ? options.preview(page, width) : `/api/v1/documents/${state.document.id}/pages/${page}/preview?width=${width}`; }
   /** Применяет масштаб через CSSOM, не перестраивая и не загружая весь PDF. */
   function applyZoom() {
     canvas.classList.toggle('viewer__canvas--fit', fit);

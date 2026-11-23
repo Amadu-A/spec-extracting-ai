@@ -41,7 +41,7 @@ export async function api(path, options = {}) {
 }
 
 /** Скачивает реальный защищённый экспорт; ошибок вместо файла не сохраняет. */
-export async function download(url, extension) {
+export async function download(url, extension, name = 'specification') {
   const response = await fetch(url, { credentials: 'same-origin' });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -50,9 +50,12 @@ export async function download(url, extension) {
   const blob = await response.blob();
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `specification.${extension}`;
+  link.download = `${name}.${extension}`;
   document.body.append(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
+
+/** Открывает общий cookie/SSE transport с durable курсором обоих профилей. */
+export function eventStream(path, after) { return new EventSource(`/api/v1${path}/events?after=${after}`); }

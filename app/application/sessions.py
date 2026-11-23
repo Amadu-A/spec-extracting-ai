@@ -51,14 +51,16 @@ class SessionService:
         self, session: Session, value: str | None = None, restore: bool = False
     ) -> dict:
         """Сохраняет/сбрасывает prompt только текущей сессии; running snapshot неизменен."""
-        if restore:
-            session.prompt = None
-        elif value is not None:
+        if not restore and value is not None:
             if not value.strip() or len(value) > 20000:
                 raise ServiceError("invalid_prompt", "Промпт должен содержать 1–20000 символов")
-            session.prompt = value
         if restore or value is not None:
-            await self.repository.save_session(session)
+
+            def update(current):
+                """Меняет только prompt спецификаций, не перетирая invoice_prompt."""
+                current.prompt = None if restore else value
+
+            session = await self.repository.edit_session(session.token_hash, update)
         effective = session.prompt if session.prompt is not None else self.default_prompt
         return {
             "prompt": effective,

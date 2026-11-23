@@ -1,6 +1,6 @@
 // app/web/static/js/features/analysis.js
 /** Upload, durable job lifecycle, SSE reconnect и восстановление серверного snapshot. */
-import { api, download, idempotencyKey } from '../api.js';
+import { api, download, eventStream, idempotencyKey } from '../api.js';
 import { applyEvent, completed, initialState, parsePages, restoreSnapshot, running } from '../state.js';
 
 const eventNames = ['job_queued', 'job_started', 'page_started', 'stream_reset', 'text_delta', 'item_validated',
@@ -54,7 +54,7 @@ export function setupAnalysis(state, viewer, results, notify) {
   /** EventSource использует Last-Event-ID при reconnect; старые события пропускаются reducer. */
   function connect() {
     source?.close();
-    source = new EventSource(`/api/v1/extractions/${state.jobId}/events?after=${state.last_event_id}`);
+    source = eventStream(`/extractions/${state.jobId}`, state.last_event_id);
     for (const type of eventNames) source.addEventListener(type, async event => {
       const data = JSON.parse(event.data);
       if (!applyEvent(state, type, data, event.lastEventId)) return;

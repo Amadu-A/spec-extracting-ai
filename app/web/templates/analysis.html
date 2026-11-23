@@ -3,6 +3,8 @@
 {% extends "base.html" %}
 {% block scripts %}<script type="module" src="/static/js/app.js"></script>{% endblock %}
 {% block content %}
+<nav class="profiles" aria-label="Сценарий извлечения"><button class="button button--primary" data-profile="spec" aria-pressed="true">Извлечение спецификаций</button><button class="button" data-profile="invoice" aria-pressed="false">Извлечение счетов</button></nav>
+<div data-spec-profile>
 <header class="header">
   <div class="header__identity"><svg class="header__logo" aria-hidden="true"><use href="/static/icons.svg#brand"/></svg>
     <h1>Извлечение спецификаций</h1><span class="badge" data-job-status role="status">● &nbsp; Ожидание документа</span></div>
@@ -27,27 +29,7 @@
     <p class="upload__error" data-form-error role="alert" hidden></p>
   </form>
   <div class="workspace__columns">
-    <section class="viewer panel" data-viewer aria-labelledby="viewer-title">
-      <div class="viewer__toolbar">
-        <h2 class="panel__title" id="viewer-title"><svg class="icon"><use href="/static/icons.svg#image"/></svg>Лист документа</h2>
-        <div class="viewer__navigation"><button class="button button--icon" data-page-prev aria-label="Предыдущий PDF-лист" title="Предыдущий PDF-лист">‹</button>
-          <label class="viewer__page-label">Лист <input data-page-number type="number" min="1" value="1" aria-label="Номер просматриваемой PDF-страницы"> <span data-page-total>из 0</span></label>
-          <button class="button button--icon" data-page-next aria-label="Следующий PDF-лист" title="Следующий PDF-лист">›</button></div>
-        <div class="viewer__zoom"><button class="button button--icon" data-zoom-out title="Уменьшить" aria-label="Уменьшить">−</button><output data-zoom>100%</output><button class="button button--icon" data-zoom-in title="Увеличить" aria-label="Увеличить">+</button></div>
-        <button class="button button--icon" data-fit title="Вписать лист / по ширине" aria-label="Вписать лист / по ширине"><svg class="icon"><use href="/static/icons.svg#fit"/></svg></button>
-        <button class="button button--icon" data-fullscreen title="Полноэкранный просмотр" aria-label="Полноэкранный просмотр"><svg class="icon"><use href="/static/icons.svg#full"/></svg></button>
-        <span class="badge viewer__processing" data-processing-label>Нет обработки</span>
-        <button class="button button--icon" data-hand title="Перетаскивание страницы" aria-label="Перетаскивание страницы" aria-pressed="false">✋</button>
-        <button class="button button--icon" data-retry title="Повторить просмотренную страницу и зависимые листы" aria-label="Повторить просмотренную страницу" disabled><svg class="icon"><use href="/static/icons.svg#retry"/></svg></button>
-      </div>
-      <div class="viewer__canvas" data-canvas>
-        <div class="viewer__empty" data-viewer-empty><svg><use href="/static/icons.svg#image"/></svg><p>Загрузите проектную документацию</p><small>Слева — оригинальный PDF, справа — ответ модели</small></div>
-        <img class="viewer__image" data-page-image alt="" hidden>
-        <p class="viewer__error" data-preview-error role="alert" hidden></p>
-      </div>
-      <div class="viewer__footer"><span data-selection-label>Страницы ещё не выбраны</span><button class="button button--soft" data-cancel hidden>Остановить анализ</button></div>
-      <nav class="thumbnails" data-thumbnails aria-label="Миниатюры PDF-страниц"></nav>
-    </section>
+    {% include "components/viewer.html" %}
     <aside class="workspace__results" aria-label="Результаты анализа">
       <section class="result panel" aria-labelledby="result-title">
         <div class="result__heading"><h2 class="panel__title" id="result-title"><svg class="icon"><use href="/static/icons.svg#code"/></svg>Потоковый JSON</h2>
@@ -73,4 +55,7 @@
 {% include "components/prompt.html" %}
 <dialog class="modal" data-warnings-dialog aria-labelledby="warnings-title"><div class="modal__heading"><h2 id="warnings-title">Предупреждения и непроверенные строки</h2><button class="button button--icon" data-warnings-close aria-label="Закрыть предупреждения">×</button></div>
   <p>Эти строки требуют проверки по оригиналу. Они не подменяются выдуманными значениями.</p><div class="warnings" data-warnings></div><button class="button" data-warnings-more hidden>Показать ещё</button></dialog>
+</div>
+<template data-invoice-template>{% include "invoices.html" %}</template>
+<div data-invoice-profile hidden></div>
 {% endblock %}

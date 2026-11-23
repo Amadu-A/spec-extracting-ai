@@ -1,0 +1,43 @@
+<!-- app/web/templates/invoices.html -->
+<!-- Независимый UI-профиль; viewer и prompt controls используют общие компоненты. -->
+<header class="header">
+  <div class="header__identity"><h1>Извлечение счетов</h1><span class="badge" data-invoice-status role="status">Ожидание файлов</span></div>
+  <nav class="header__exports" aria-label="Экспорт счетов">
+    <button class="button button--primary" data-invoice-export="json" disabled>Экспорт JSON</button>
+    <button class="button button--green" data-invoice-export="xlsx" disabled>Экспорт Excel</button>
+  </nav>
+</header>
+<main class="workspace">
+  <form class="invoice-upload" data-invoice-form data-max-files="{{ invoice_max_files }}">
+    <div class="invoice-upload__drop" data-invoice-drop>
+      <label for="invoice-files">Файлы счетов и финансовых спецификаций</label>
+      <input id="invoice-files" type="file" data-invoice-files multiple accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
+      <small>Перетащите PDF/JPEG/PNG · до {{ invoice_max_files }} файлов · {{ max_upload_mb }} МБ каждый · пакет до {{ invoice_max_batch_mb }} МБ</small>
+    </div>
+    <button type="button" class="button button--outline" data-prompt-open>Изменить промпт</button>
+    <button type="submit" class="button button--primary" data-invoice-start>Запустить анализ</button>
+    <p class="modal__error" data-invoice-error role="alert" hidden></p>
+  </form>
+  <div class="invoice-files" data-invoice-file-list aria-label="Выбранные файлы"></div>
+  <div class="workspace__columns">
+    {% with viewer_title_id='invoice-viewer-title' %}{% include "components/viewer.html" %}{% endwith %}
+    <aside class="workspace__results" aria-label="Результаты счетов">
+      <section class="panel invoice-summary">
+        <h2 class="panel__title">Документы и проверка сумм</h2>
+        <p data-invoice-metrics role="status">Документов: 0 · строк: 0 · прогресс: 0%</p>
+        <div class="metrics">
+          <article class="metrics__card metrics__card--blue"><span>Документов</span><strong data-invoice-document-count>0</strong></article>
+          <article class="metrics__card metrics__card--green"><span>Извлечено строк</span><strong data-invoice-item-count>0</strong></article>
+          <article class="metrics__card metrics__card--purple"><span>Прогресс</span><strong data-invoice-progress>0%</strong></article>
+          <article class="metrics__card metrics__card--orange"><span>Предупреждений</span><strong data-invoice-warning-count>0</strong></article>
+        </div>
+        <p class="result__caption">Промежуточный поток — диагностика. Экспорт доступен после обработки всего пакета.</p>
+        <div class="invoice-summary__scroll"><table class="invoice-table"><caption class="visually-hidden">Реквизиты и итоги каждого документа</caption><thead><tr><th>Источник / документ</th><th>Поставщик / покупатель</th><th>Дата / строк</th><th>Без НДС / НДС / с НДС</th><th>Проверка</th></tr></thead><tbody data-invoice-documents></tbody></table></div>
+        <details><summary>Извлечённые позиции</summary><ol class="invoice-items" data-invoice-items></ol></details>
+      </section>
+      <section class="result panel"><div class="result__heading"><h2 class="panel__title">Потоковый JSON</h2><button class="button button--soft" data-invoice-copy disabled>Копировать результат</button></div><div class="code" tabindex="0"><pre class="code__content" data-invoice-code>Ответ shared-vlm появится после запуска.</pre></div></section>
+      <section class="journal panel"><h2 class="panel__title">Журнал и предупреждения</h2><ol class="journal__list" data-invoice-journal></ol><div class="warnings" data-invoice-warnings></div><button class="button" data-invoice-warnings-more hidden>Показать ещё</button></section>
+    </aside>
+  </div>
+</main>
+{% with prompt_prefix='invoice-prompt' %}{% include "components/prompt.html" %}{% endwith %}

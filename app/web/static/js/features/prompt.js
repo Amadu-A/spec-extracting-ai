@@ -3,8 +3,10 @@
 import { api } from '../api.js';
 
 /** Подключает native dialog; браузер обеспечивает focus trap и возврат фокуса. */
-export function setupPrompt(notify) {
-  const dialog = document.querySelector('[data-prompt-dialog]');
+export function setupPrompt(notify, options = {}) {
+  const scope = options.root || document;
+  const endpoint = options.endpoint || '/session/prompt';
+  const dialog = scope.querySelector('[data-prompt-dialog]');
   const text = dialog.querySelector('[data-prompt-text]');
   const error = dialog.querySelector('[data-prompt-error]');
   let saved = '';
@@ -13,9 +15,9 @@ export function setupPrompt(notify) {
     if (text.value !== saved && !window.confirm('Закрыть без сохранения изменений промпта?')) return;
     dialog.close();
   }
-  document.querySelector('[data-prompt-open]').addEventListener('click', async () => {
+  scope.querySelector('[data-prompt-open]').addEventListener('click', async () => {
     try {
-      const current = await api('/session/prompt'); saved = current.prompt; text.value = saved;
+      const current = await api(endpoint); saved = current.prompt; text.value = saved;
       error.hidden = true; dialog.showModal(); text.focus();
     } catch (failure) { notify(failure.message); }
   });
@@ -24,7 +26,7 @@ export function setupPrompt(notify) {
   dialog.querySelector('[data-prompt-save]').addEventListener('click', async (event) => {
     const button = event.currentTarget; button.disabled = true;
     try {
-      const current = await api('/session/prompt', { method: 'PUT', body: JSON.stringify({ prompt: text.value }) });
+      const current = await api(endpoint, { method: 'PUT', body: JSON.stringify({ prompt: text.value }) });
       saved = current.prompt; dialog.close(); notify('Промпт сохранён для новых заданий этой сессии');
     } catch (failure) { error.textContent = failure.message; error.hidden = false; }
     finally { button.disabled = false; }
@@ -32,7 +34,7 @@ export function setupPrompt(notify) {
   dialog.querySelector('[data-prompt-restore]').addEventListener('click', async (event) => {
     const button = event.currentTarget; button.disabled = true;
     try {
-      const current = await api('/session/prompt/restore', { method: 'POST' }); saved = current.prompt; text.value = saved;
+      const current = await api(`${endpoint}/restore`, { method: 'POST' }); saved = current.prompt; text.value = saved;
       error.hidden = true; notify('Стандартный промпт уже восстановлен на сервере');
     } catch (failure) { error.textContent = failure.message; error.hidden = false; }
     finally { button.disabled = false; }

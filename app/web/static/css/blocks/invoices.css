@@ -1,0 +1,25 @@
+/* app/web/static/css/blocks/invoices.css */
+/* Профили и финансовые таблицы используют общие инженерные tokens и viewer. */
+.profiles{display:flex;gap:8px;padding:8px 28px;background:var(--panel,#fff);border-bottom:1px solid #e0edf9}
+.invoice-upload{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.invoice-upload__drop{display:flex;flex-direction:column;gap:6px;flex:1;min-width:260px;border:1px dashed #a9c1db;border-radius:6px;padding:10px}
+.invoice-upload__drop--active{outline:2px solid var(--blue)}
+.invoice-files{display:flex;gap:8px;overflow:auto;margin-bottom:10px;padding:2px}
+.invoice-files__entry{min-width:210px;max-width:360px;border:1px solid #d3e1f0;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px;background:#fff}
+.invoice-files__entry--active{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.invoice-files__entry button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.invoice-files__entry label{font-size:12px;color:var(--muted)}
+.invoice-summary{padding:14px;max-height:42vh;overflow:auto}
+.invoice-summary__scroll{overflow:auto;margin:8px 0}
+.invoice-table{border-collapse:collapse;font-size:12px;width:100%}
+.invoice-table th,.invoice-table td{border-bottom:1px solid #e0e9f3;text-align:left;padding:7px;vertical-align:top;white-space:pre-line}
+.invoice-table th{color:#476489;background:#f3f7fc}
+.invoice-table__check--failed{color:#b94318;font-weight:700}
+.invoice-table__check--passed{color:#28704b}
+.invoice-items{font-size:12px;padding-left:24px}
+.invoice-items li{padding:7px 0;border-bottom:1px solid #e0e9f3;white-space:pre-line}
+[data-invoice-profile] .workspace__columns{height:calc(100vh - 265px);min-height:660px}
+[data-invoice-profile] .journal{max-height:28vh;overflow:auto}
+[data-invoice-profile] .result{min-height:180px;flex:1}
+[data-invoice-profile] .result .code{min-height:0}
+@media(max-width:900px){.profiles{padding:8px;flex-wrap:wrap}.invoice-upload{align-items:stretch}.invoice-summary{max-height:none}}

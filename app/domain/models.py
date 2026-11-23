@@ -230,6 +230,7 @@ class Session(Contract):
     token_hash: str
     csrf: str
     prompt: str | None = None
+    invoice_prompt: str | None = None
     expires_at: datetime
 
 

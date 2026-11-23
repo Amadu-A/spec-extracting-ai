@@ -6,6 +6,7 @@ import { setupViewer } from './features/viewer.js';
 import { setupResults } from './features/results.js';
 import { setupPrompt } from './features/prompt.js';
 import { setupAnalysis } from './features/analysis.js';
+import { setupProfiles } from './features/invoices.js';
 
 const state = initialState();
 let notificationTimer;
@@ -20,10 +21,12 @@ const viewer = setupViewer(state, () => { analysis?.persist(); results.render();
 analysis = setupAnalysis(state, viewer, results, notify);
 setupPrompt(notify);
 let renewing;
+let profiles;
 
 /** Заменяет истёкший capability и очищает прежние данные без окна авторизации. */
 async function renewSession() {
   analysis.stop();
+  profiles?.reset();
   document.querySelectorAll('dialog[open]').forEach(dialog => dialog.close());
   const session = await api('/session'); setCsrf(session.csrf);
   sessionStorage.removeItem('spec.job'); Object.assign(state, initialState()); analysis.render();
@@ -45,5 +48,6 @@ async function initialize() {
     catch (failure) { sessionStorage.removeItem('spec.job'); notify(failure.message); }
   }
   analysis.render();
+  profiles = setupProfiles(notify);
 }
 initialize().catch(failure => notify(`Сервис недоступен: ${failure.message}`));

@@ -64,7 +64,7 @@ async def run() -> None:
             except (ValueError, UnicodeError):
                 logging.getLogger(__name__).warning("invalid_queue_message")
                 return
-            await container.processor.execute(job_id)
+            await container.jobs.execute(job_id)
 
     try:
         while True:

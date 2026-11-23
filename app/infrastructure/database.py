@@ -28,6 +28,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.orm import Session as DbSession
 
 from app.domain.errors import ServiceError
+from app.domain.jobs import document_ids, read_job
 from app.domain.models import Document, Event, Job, Session, utcnow
 
 
@@ -125,7 +126,7 @@ class SqlRepository:
                         )
                     )
                     if previous:
-                        old = Job.model_validate(previous.payload)
+                        old = read_job(previous.payload)
                         if old.fingerprint != job.fingerprint:
                             raise ServiceError(
                                 "idempotency_conflict",
@@ -162,22 +163,7 @@ class SqlRepository:
         # flush не делает commit, snapshot и журнал по-прежнему атомарны.
         db.flush()
         if expiry_changed:
-            document_row = db.scalar(
-                select(DocumentRecord).where(DocumentRecord.id == job.document_id).with_for_update()
-            )
-            if document_row:
-                latest = db.scalar(
-                    select(func.max(JobRecord.expires_at)).where(
-                        JobRecord.payload["document_id"].as_string() == job.document_id
-                    )
-                )
-                latest = latest.replace(tzinfo=UTC) if latest.tzinfo is None else latest
-                document = Document.model_validate(document_row.payload)
-                document.expires_at = latest
-                document_row.expires_at, document_row.payload = (
-                    latest,
-                    document.model_dump(mode="json"),
-                )
+            self._extend_documents(db, job)
         for journal_event in job.pending_events:
             db.add(
                 EventRecord(
@@ -188,6 +174,40 @@ class SqlRepository:
             )
         job.pending_events.clear()
 
+    def _extend_documents(self, db: DbSession, job: Job) -> None:
+        """Связывает TTL всех файлов batch с живыми jobs в той же транзакции."""
+        # В snapshots новых jobs несколько источников; SQL-схема остаётся совместимой.
+        for document_id in sorted(document_ids(job)):
+            document_row = db.scalar(
+                select(DocumentRecord).where(DocumentRecord.id == document_id).with_for_update()
+            )
+            if document_row:
+                # Читаем сроки после document lock: concurrent create уже мог продлить оригинал.
+                active = db.execute(
+                    select(
+                        JobRecord.expires_at,
+                        JobRecord.payload["document_id"].as_string(),
+                        JobRecord.payload["sources"],
+                    ).where(JobRecord.expires_at > utcnow())
+                )
+                latest = max(
+                    [
+                        job.expires_at,
+                        *(
+                            expiry.replace(tzinfo=UTC) if expiry.tzinfo is None else expiry
+                            for expiry, first_id, sources in active
+                            if document_id
+                            in ([s["document_id"] for s in sources] if sources else [first_id])
+                        ),
+                    ]
+                )
+                document = Document.model_validate(document_row.payload)
+                document.expires_at = latest
+                document_row.expires_at, document_row.payload = (
+                    latest,
+                    document.model_dump(mode="json"),
+                )
+
     async def get(self, job_id: str) -> Job | None:
         """Читает новый снимок, исключая ORM из вызывающего слоя."""
 
@@ -195,7 +215,7 @@ class SqlRepository:
             """Закрывает DB session после материализации DTO."""
             with DbSession(self.engine) as db:
                 row = db.get(JobRecord, job_id)
-                return Job.model_validate(row.payload) if row else None
+                return read_job(row.payload) if row else None
 
         return await self._run(read)
 
@@ -208,7 +228,7 @@ class SqlRepository:
                 row = db.scalar(select(JobRecord).where(JobRecord.id == job_id).with_for_update())
                 if not row:
                     raise ServiceError("job_not_found", "Задание не найдено", 404)
-                job = Job.model_validate(row.payload)
+                job = read_job(row.payload)
                 change(job)
                 self._store(db, row, job)
                 return job
@@ -314,6 +334,28 @@ class SqlRepository:
 
         await self._run(save)
 
+    async def edit_session(self, token_hash: str, change: Callable[[Session], None]) -> Session:
+        """Не допускает lost update при независимых PUT промптов из двух вкладок."""
+
+        def update():
+            """Под блокировкой читает свежий snapshot, не продлевая фиксированный TTL."""
+            with DbSession(self.engine) as db, db.begin():
+                row = db.scalar(
+                    select(SessionRecord)
+                    .where(SessionRecord.id == token_hash, SessionRecord.expires_at > utcnow())
+                    .with_for_update()
+                )
+                if row is None:
+                    raise ServiceError("session_expired", "Веб-сессия истекла", 401)
+                session = Session.model_validate(
+                    {key: value for key, value in row.payload.items() if key != "authenticated"}
+                )
+                change(session)
+                row.payload = session.model_dump(mode="json")
+                return session
+
+        return await self._run(update)
+
     async def overdue_jobs(self, deadline: datetime) -> list[str]:
         """Находит queued/running, чей бюджет истёк до начала периода хранения."""
 
@@ -351,15 +393,23 @@ class SqlRepository:
                 db.execute(delete(EventRecord).where(EventRecord.job_id.in_(expired)))
                 db.execute(delete(JobRecord).where(JobRecord.expires_at <= utcnow()))
                 db.execute(delete(SessionRecord).where(SessionRecord.expires_at <= utcnow()))
+                protected = {
+                    document_id
+                    for first_id, sources in db.execute(
+                        select(
+                            JobRecord.payload["document_id"].as_string(),
+                            JobRecord.payload["sources"],
+                        ).where(JobRecord.expires_at > utcnow())
+                    )
+                    for document_id in (
+                        [s["document_id"] for s in sources] if sources else [first_id]
+                    )
+                }
                 docs = list(
                     db.scalars(
                         select(DocumentRecord.id).where(
                             DocumentRecord.expires_at <= utcnow(),
-                            DocumentRecord.id.not_in(
-                                select(JobRecord.payload["document_id"].as_string()).where(
-                                    JobRecord.expires_at > utcnow()
-                                )
-                            ),
+                            DocumentRecord.id.not_in(protected),
                         )
                     )
                 )

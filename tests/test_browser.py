@@ -36,7 +36,7 @@ def web_server(root):
                 """Только тестовый транспорт заменяет AMQP, бизнес-обработчик остаётся настоящим."""
                 while True:
                     for job_id in await root.repository.dispatchable(10):
-                        await root.processor.execute(job_id)
+                        await (root.jobs or root.processor).execute(job_id)
                     await asyncio.sleep(0.05)
 
             worker = asyncio.create_task(dispatch())

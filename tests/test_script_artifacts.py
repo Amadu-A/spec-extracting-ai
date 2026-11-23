@@ -219,6 +219,7 @@ def test_linux_test_script_reports_leave_tracked_files_unchanged(checkout, tmp_p
         "package.json",
         "tests/frontend/state.test.js",
         "app/web/static/js/state.js",
+        "app/web/static/js/invoice-state.js",
     ):
         shutil.copyfile(ROOT / name, checkout / name)
     if extra_js_test:

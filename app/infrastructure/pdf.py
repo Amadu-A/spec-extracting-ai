@@ -71,15 +71,18 @@ class IsolatedPdfReader:
         """Выполняет безопасный preflight PDF до постановки задания в очередь."""
         return await self._call(path, "inspect")
 
-    async def prepare(self, path: str, pdf_page: int) -> PreparedPage:
+    async def prepare(self, path: str, pdf_page: int, *, tables: bool = False) -> PreparedPage:
         """Готовит весь физический лист, текст и при необходимости детальные crops."""
-        data = await self._call(path, "prepare", pdf_page=pdf_page)
+        data = await self._call(
+            path, "prepare", pdf_page=pdf_page, **({"invoice_tables": True} if tables else {})
+        )
         return PreparedPage(
             text=data["text"],
             blocks=data["blocks"],
             warnings=data["warnings"],
             images=[base64.b64decode(image) for image in data["images"]],
             stages=[Stage.model_validate(stage) for stage in data.get("stages", [])],
+            tables=data.get("tables", []),
         )
 
     async def preview(self, path: str, pdf_page: int, width: int) -> bytes:

@@ -39,6 +39,22 @@ class LocalStorage:
 
     async def write(self, document_id: str, chunks: AsyncIterator[bytes], limit: int) -> str:
         """Записывает поток без накопления PDF в памяти; при ошибке удаляет partial."""
+        return await self._write(document_id, chunks, limit, (b"%PDF-",))
+
+    async def write_source(self, document_id: str, chunks: AsyncIterator[bytes], limit: int) -> str:
+        """Профиль счетов разрешает PDF/JPEG/PNG, сохраняя исходные байты и SHA256."""
+        return await self._write(
+            document_id, chunks, limit, (b"%PDF-", b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")
+        )
+
+    async def _write(
+        self,
+        document_id: str,
+        chunks: AsyncIterator[bytes],
+        limit: int,
+        signatures: tuple[bytes, ...],
+    ) -> str:
+        """Общий атомарный writer; список допустимых сигнатур определяется профилем."""
         directory = self._directory(document_id)
         await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=False)
         temporary = directory / "upload.part"
@@ -49,11 +65,13 @@ class LocalStorage:
                 size += len(chunk)
                 if size > limit:
                     raise ServiceError("upload_limit", "Превышен лимит загрузки PDF", 413)
-                signature = (signature + chunk)[:5]
+                signature = (signature + chunk)[:8]
                 digest.update(chunk)
                 await asyncio.to_thread(stream.write, chunk)
-            if signature != b"%PDF-":
-                raise ServiceError("unsupported_file", "Ожидается файл с сигнатурой PDF", 415)
+            if not signature.startswith(signatures):
+                raise ServiceError(
+                    "unsupported_file", "Сигнатура файла не соответствует разрешённому формату", 415
+                )
             await asyncio.to_thread(stream.close)
             await asyncio.to_thread(temporary.replace, directory / "original.pdf")
             return digest.hexdigest()
@@ -68,7 +86,7 @@ class LocalStorage:
 
         def remove():
             """Не следует ссылкам и не удаляет неожиданные дочерние каталоги."""
-            for name in ("upload.part", "original.pdf"):
+            for name in ("upload.part", "original.pdf", "normalized.pdf"):
                 (directory / name).unlink(missing_ok=True)
             if directory.exists():
                 directory.rmdir()

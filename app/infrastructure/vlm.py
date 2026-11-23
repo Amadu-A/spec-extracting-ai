@@ -65,9 +65,17 @@ SYSTEM_CONTRACT = (
 class SharedVlmClient:
     """Передаёт изображения только явно настроенному логическому inference endpoint."""
 
-    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        client: httpx.AsyncClient | None = None,
+        *,
+        page_schema=PageExtraction,
+        system_contract: str = SYSTEM_CONTRACT,
+    ):
         """Принимает HTTP-клиент через DI для контрактных тестов без реальной модели."""
         self.settings = settings
+        self.page_schema, self.system_contract = page_schema, system_contract
         self.client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(settings.vlm_timeout_seconds, connect=10), trust_env=False
         )
@@ -95,7 +103,7 @@ class SharedVlmClient:
             }
             for image in page.images
         )
-        schema = PageExtraction.model_json_schema(mode="serialization")
+        schema = self.page_schema.model_json_schema(mode="serialization")
         request = {
             "model": self.settings.shared_vlm_model,
             "temperature": 0,
@@ -103,7 +111,7 @@ class SharedVlmClient:
             "max_tokens": self.settings.vlm_max_tokens,
             "chat_template_kwargs": {"enable_thinking": False},
             "messages": [
-                {"role": "system", "content": SYSTEM_CONTRACT},
+                {"role": "system", "content": self.system_contract},
                 {"role": "user", "content": content},
             ],
             "response_format": {

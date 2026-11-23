@@ -532,6 +532,7 @@ def test_linux_gate_uses_playwright_node_without_system_node(tmp_path):
         "package.json",
         "tests/frontend/state.test.js",
         "app/web/static/js/state.js",
+        "app/web/static/js/invoice-state.js",
     ):
         destination = repository / name
         destination.parent.mkdir(parents=True, exist_ok=True)

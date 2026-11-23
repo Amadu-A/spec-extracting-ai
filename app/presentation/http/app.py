@@ -18,15 +18,17 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.bootstrap import build_container
 from app.core.observability import configure_logging
 from app.domain.errors import ServiceError
+from app.presentation.http.invoice_routes import router as invoice_router
 from app.presentation.http.routes import router, session_info
 
 
 class PerimeterMiddleware:
     """Ограничивает request body/частоту, добавляет CSP и correlation id без буферизации SSE."""
 
-    def __init__(self, app, max_body: int, rate: int):
+    def __init__(self, app, max_body: int, rate: int, invoice_max_body: int | None = None):
         """Лимиты рассчитаны на один Uvicorn worker; журнал ограничен 10000 IP buckets."""
         self.app, self.max_body, self.rate = app, max_body, rate
+        self.invoice_max_body = invoice_max_body or max_body
         self.buckets = OrderedDict()
 
     async def __call__(self, scope, receive, send):
@@ -35,6 +37,11 @@ class PerimeterMiddleware:
             await self.app(scope, receive, send)
             return
         reference = str(uuid4())
+        max_body = (
+            self.invoice_max_body
+            if scope.get("path", "").startswith("/api/v1/invoice-extractions")
+            else self.max_body
+        )
         scope.setdefault("state", {})["reference_id"] = reference
         headers = dict(scope.get("headers", []))
         ip = scope.get("client", ("unknown",))[0]
@@ -55,8 +62,8 @@ class PerimeterMiddleware:
         try:
             content_length = int(headers.get(b"content-length", b"0"))
         except ValueError:
-            content_length = self.max_body + 1
-        if content_length > self.max_body:
+            content_length = max_body + 1
+        if content_length > max_body:
             await self._error(
                 scope, receive, send, 413, "upload_limit", "Превышен лимит HTTP-загрузки", reference
             )
@@ -68,7 +75,7 @@ class PerimeterMiddleware:
             nonlocal received
             message = await receive()
             received += len(message.get("body", b""))
-            if received > self.max_body:
+            if received > max_body:
                 # FastAPI сохраняет HTTPException при multipart parsing, а произвольные
                 # исключения преобразует в 400 и теряет исходный machine-readable код.
                 raise StarletteHTTPException(413, "upload_limit")
@@ -122,7 +129,7 @@ def create_app(dependencies=None) -> FastAPI:
         title="Извлечение спецификаций",
         version="1.0.0",
         lifespan=lifespan,
-        description="Асинхронный API для Web UI, 1С и ботов. API-key: X-API-Key либо Bearer. Экспорт сохраняет пять строковых полей.",
+        description="Асинхронный API для Web UI, 1С и ботов. X-API-Key либо Bearer; UI — cookie + CSRF. Спецификации: восемь полей позиции. Счета: invoice_extraction.v1, PDF/JPEG/PNG batch, TTL 3600 секунд после terminal. Неполный результат → 409, истёкший → 410; недоступная VLM/OCR → диагностируемая ошибка задания. Пример curl приведён в docs/API.md.",
         docs_url=None,
         redoc_url=None,
         swagger_ui_parameters={"persistAuthorization": False},
@@ -136,9 +143,11 @@ def create_app(dependencies=None) -> FastAPI:
     application.add_middleware(
         PerimeterMiddleware,
         max_body=(settings.max_upload_mb + 1) * 1024 * 1024,
+        invoice_max_body=(settings.invoice_max_batch_mb + 1) * 1024 * 1024,
         rate=settings.rate_limit_per_minute,
     )
     application.include_router(router)
+    application.include_router(invoice_router)
     web = Path(__file__).resolve().parents[2] / "web"
     application.mount("/static", StaticFiles(directory=web / "static"), name="static")
     templates = Jinja2Templates(directory=web / "templates")
@@ -147,7 +156,13 @@ def create_app(dependencies=None) -> FastAPI:
     async def index(request: Request):
         """Отдаёт оболочку; документы/прогресс загружаются тем же защищённым API."""
         response = templates.TemplateResponse(
-            request=request, name="analysis.html", context={"max_upload_mb": settings.max_upload_mb}
+            request=request,
+            name="analysis.html",
+            context={
+                "max_upload_mb": settings.max_upload_mb,
+                "invoice_max_files": settings.invoice_max_files,
+                "invoice_max_batch_mb": settings.invoice_max_batch_mb,
+            },
         )
         await session_info(request, response)
         return response

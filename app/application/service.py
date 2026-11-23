@@ -131,7 +131,7 @@ class ExtractionService:
     async def owned(self, job_id: str, owner: str) -> Job:
         """Единая проверка owner и TTL для status/SSE/preview/exports."""
         job = await self.repository.get(job_id)
-        if not job or job.owner != owner:
+        if not job or job.owner != owner or getattr(job, "job_type", None) == "invoice":
             raise ServiceError("job_not_found", "Задание не найдено", 404)
         if job.expires_at <= utcnow():
             raise ServiceError("job_expired", "Срок хранения задания истёк", 410)

@@ -13,13 +13,14 @@ from app.application.exports import ExportService
 from app.application.processor import ExtractionProcessor
 from app.application.service import ExtractionService
 from app.application.sessions import SessionService
-from app.bootstrap import Container
+from app.bootstrap import Container, configure_invoices
 from app.core.settings import Settings
 from app.infrastructure.database import Base, SqlRepository
 from app.infrastructure.excel import ExcelExporter
 from app.infrastructure.pdf import IsolatedPdfReader
 from app.infrastructure.storage import LocalStorage
 from app.presentation.http.app import create_app
+from tests.invoice_helpers import InvoiceModelDouble
 
 KEY_A = "test-alpha-key-for-offline-checks-only"
 KEY_B = "test-beta-key-for-offline-checks-only"
@@ -42,6 +43,11 @@ def pytest_addoption(parser):
     parser.addoption(
         "--require-corpus", action="store_true", help="Требовать все четыре локальных PDF/JSON"
     )
+    parser.addoption(
+        "--require-invoice-corpus",
+        action="store_true",
+        help="Требовать семь локальных счетов PDF/JSON",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -51,6 +57,12 @@ def pytest_collection_modifyitems(config, items):
 
         if len(find_pairs(Path("examples"))) != 4:
             raise pytest.UsageError("--require-corpus: нужны все четыре PDF/JSON в examples/")
+    if config.getoption("--require-invoice-corpus"):
+        paths = list(Path("examples/invoices").glob("*.pdf"))
+        if len(paths) != 7 or any(not path.with_suffix(".json").is_file() for path in paths):
+            raise pytest.UsageError(
+                "--require-invoice-corpus: нужны все семь PDF/JSON в examples/invoices/"
+            )
 
 
 class DeterministicModel:
@@ -176,3 +188,18 @@ async def uploaded(root: Container, data: bytes, owner: str = "api:alpha"):
         yield data
 
     return await root.extractions.upload(owner, "test.pdf", "application/pdf", chunks())
+
+
+@pytest.fixture
+def invoice_root(root):
+    """Composition root переиспользует настоящие адаптеры и отдельную управляемую VLM."""
+    return configure_invoices(root, InvoiceModelDouble())
+
+
+@pytest.fixture
+async def invoice_client(invoice_root):
+    """HTTP-клиент проверяет те же transport/auth/use-case, что UI и интеграции."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(invoice_root)), base_url="http://test"
+    ) as client:
+        yield client

@@ -6,11 +6,15 @@
 """
 
 import base64
+import contextlib
+import io
 import json
 import math
 import re
+import struct
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from time import perf_counter
 
 import pymupdf
@@ -37,6 +41,8 @@ def raster(page, scale: float, pixel_limit: int, clip=None) -> bytes:
 
 def execute(payload: dict) -> dict:
     """Проверяет PDF и выполняет единственную ограниченную операцию."""
+    if payload["operation"] == "normalize_image":
+        return normalize_image(payload)
     try:
         document = pymupdf.open(payload["path"])
     except Exception:
@@ -105,11 +111,28 @@ def execute(payload: dict) -> dict:
                 else:
                     rect.x0, rect.x1 = side * page.rect.width / 2, (side + 1) * page.rect.width / 2
                 images.append(raster(page, scale, payload["max_pixels"], rect))
+        render_duration = (perf_counter() - render_started) * 1000
+        table_started = perf_counter()
+        table_started_at = datetime.now(UTC)
+        tables = native_tables(page) if payload.get("invoice_tables") else []
+        table_stage = (
+            [
+                {
+                    "name": "Табличная геометрия",
+                    "state": "completed",
+                    "started_at": table_started_at.isoformat(),
+                    "duration_ms": round((perf_counter() - table_started) * 1000, 2),
+                }
+            ]
+            if payload.get("invoice_tables")
+            else []
+        )
         return {
             "text": text,
             "blocks": blocks,
             "warnings": warnings,
             "images": [base64.b64encode(image).decode() for image in images],
+            "tables": tables,
             "stages": [
                 {
                     "name": "Извлечение текста",
@@ -121,10 +144,84 @@ def execute(payload: dict) -> dict:
                     "name": "Рендер страницы",
                     "state": "completed",
                     "started_at": render_started_at.isoformat(),
-                    "duration_ms": round((perf_counter() - render_started) * 1000, 2),
+                    "duration_ms": round(render_duration, 2),
                 },
+                *table_stage,
             ],
         }
+
+
+def native_tables(page) -> list[dict]:
+    """Извлекает геометрию и ячейки PDF без выбора бизнес-полей и без внешнего OCR."""
+    tables, cells = [], 0
+    # PyMuPDF печатает рекомендацию необязательного layout-пакета в stdout, где идёт JSON-протокол.
+    with contextlib.redirect_stdout(io.StringIO()):
+        detected = page.find_tables().tables[:50]
+    for table in detected:
+        rows = table.extract()
+        cells += sum(len(row) for row in rows)
+        if cells > 20000 or len(rows) > 2000:
+            raise ValueError("Превышен предел ячеек PDF")
+        tables.append(
+            {
+                "bbox": list(table.bbox),
+                "rows": [[value[:4000] if value else value for value in row] for row in rows],
+            }
+        )
+    return tables
+
+
+def normalize_image(payload: dict) -> dict:
+    """Проверяет геометрию до декодирования, конвертирует JPEG/PNG без потери оригинала."""
+    path = Path(payload["path"])
+    data = path.read_bytes()
+    if not data.startswith((b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")):
+        return {"error": "unsupported_file", "message": "Ожидается JPEG или PNG"}
+    dimensions = image_dimensions(data)
+    if not dimensions or dimensions[0] * dimensions[1] > payload["max_pixels"]:
+        return {
+            "error": "image_pixel_limit",
+            "message": "Изображение повреждено или превышает лимит пикселей",
+        }
+    with pymupdf.open(
+        stream=data, filetype="png" if data.startswith(b"\x89PNG") else "jpeg"
+    ) as image:
+        converted = image.convert_to_pdf()
+    with pymupdf.open(stream=converted, filetype="pdf") as document:
+        if len(document) != 1:
+            return {"error": "image_pages", "message": "Изображение должно содержать одну страницу"}
+        document.save(path.with_name("normalized.pdf"))
+    return {"page_count": 1}
+
+
+def image_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Читает IHDR/SOF до декодирования; image_profile в закреплённом PyMuPDF 1.26.6 имеет SWIG-дефект."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24 and data[12:16] == b"IHDR":
+        width, height = struct.unpack(">II", data[16:24])
+        return (width, height) if width and height else None
+    if not data.startswith(b"\xff\xd8"):
+        return None
+    offset = 2
+    while offset + 4 <= len(data):
+        if data[offset] != 255:
+            return None
+        while offset < len(data) and data[offset] == 255:
+            offset += 1
+        if offset + 3 > len(data):
+            return None
+        marker = data[offset]
+        offset += 1
+        size = int.from_bytes(data[offset : offset + 2], "big")
+        if size < 2 or offset + size > len(data):
+            return None
+        if (
+            marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF)
+            and size >= 7
+        ):
+            height, width = struct.unpack(">HH", data[offset + 3 : offset + 7])
+            return (width, height) if width and height else None
+        offset += size
+    return None
 
 
 def main() -> None:

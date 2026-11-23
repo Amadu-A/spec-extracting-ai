@@ -298,8 +298,17 @@ async def events(
     last_event_id: Annotated[int | None, Header(alias="Last-Event-ID")] = None,
 ):
     """SSE replay: id и Last-Event-ID дают доставку без потери committed событий."""
+    return await event_response(
+        str(job_id), request, actor, container(request).extractions, after, last_event_id
+    )
+
+
+async def event_response(
+    job_id: str, request: Request, actor: Principal, service, after: int, last_event_id: int | None
+):
+    """Общий framing/replay/TTL для профилей; формат legacy событий не изменяется."""
     dependencies = container(request)
-    job = await dependencies.extractions.owned(str(job_id), actor.owner)
+    job = await service.owned(str(job_id), actor.owner)
     cursor = last_event_id if last_event_id is not None else after
     if cursor < 0 or cursor > job.event_seq:
         raise ServiceError("invalid_event_cursor", "Курсор не принадлежит журналу задания", 409)
@@ -316,7 +325,7 @@ async def events(
                     yield "event: access_expired\ndata: {}\n\n"
                     return
             try:
-                current = await dependencies.extractions.owned(str(job_id), actor.owner)
+                current = await service.owned(str(job_id), actor.owner)
             except ServiceError:
                 yield "event: access_expired\ndata: {}\n\n"
                 return

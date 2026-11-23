@@ -18,6 +18,7 @@ class PreparedPage:
     images: list[bytes]
     warnings: list[str]
     stages: list[Stage] = field(default_factory=list)
+    tables: list[dict] = field(default_factory=list)
 
 
 class JobRepository(Protocol):
@@ -61,6 +62,10 @@ class JobRepository(Protocol):
 
     async def save_session(self, session: Session) -> None:
         """Атомарно сохраняет prompt и фиксированный срок одной сессии."""
+        ...
+
+    async def edit_session(self, token_hash: str, change: Callable[[Session], None]) -> Session:
+        """Меняет только нужный prompt под lock, сохраняя параллельные изменения другого профиля."""
         ...
 
     async def delete_session(self, token_hash: str) -> None:

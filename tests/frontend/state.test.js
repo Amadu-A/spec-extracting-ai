@@ -3,6 +3,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialState, applyEvent, exportPayload, parsePages, restoreSnapshot, completed } from '../../app/web/static/js/state.js';
+import { invoiceState, applyInvoiceEvent, restoreInvoice } from '../../app/web/static/js/invoice-state.js';
+
+test('Счета: ручной просмотр, переключение файлов, replay и независимая ревизия', () => {
+  const state = invoiceState();
+  state.jobId = 'test'; state.status = { files: [{ source_file: 'a.pdf', page_count: 5 }, { source_file: 'b.png', page_count: 1 }] };
+  assert.equal(applyInvoiceEvent(state, 'page_started', { file_index: 0, pdf_page: 2, revision: 0 }, 1), true);
+  state.viewed_pdf_page = 4;
+  applyInvoiceEvent(state, 'text_delta', { text: '{', revision: 0 }, 2);
+  applyInvoiceEvent(state, 'page_started', { file_index: 0, pdf_page: 2, revision: 0 }, 3);
+  assert.equal(state.viewed_pdf_page, 4);
+  applyInvoiceEvent(state, 'page_started', { file_index: 1, pdf_page: 1, revision: 0 }, 4);
+  assert.equal(state.viewed_file, 1); assert.equal(state.document.filename, 'b.png');
+  assert.equal(applyInvoiceEvent(state, 'text_delta', { text: 'duplicate', revision: 0 }, 4), false);
+  state.result = { files: [] };
+  applyInvoiceEvent(state, 'result_invalidated', { revision: 1 }, 5);
+  assert.equal(state.result, null); assert.equal(state.raw, '');
+  assert.equal(applyInvoiceEvent(state, 'text_delta', { text: 'stale', revision: 0 }, 6), false);
+});
+
+test('Счета: восстановление использует свой snapshot и валидную физическую страницу', () => {
+  const state = invoiceState();
+  restoreInvoice(state, { status: { job_id: 'invoice', revision: 2, current_file_index: 1, current_pdf_page: 1, files: [{ source_file: 'a.pdf', page_count: 4 }, { source_file: 'b.jpg', page_count: 1 }] }, result: null, raw_text: 'raw', last_event_id: 25 }, { viewed_file: 0, viewed_pdf_page: 3 });
+  assert.equal(state.viewed_file, 0); assert.equal(state.viewed_pdf_page, 3); assert.equal(state.processing_file, 1);
+  assert.equal(state.last_event_id, 25); assert.equal(state.revision, 2);
+});
 
 test('Диапазоны страниц: сортировка, дубликаты и физические границы', () => {
   assert.deepEqual(parsePages(' 3-5, 1, 3 ', 10), [1, 3, 4, 5]);
