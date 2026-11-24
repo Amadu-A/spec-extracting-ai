@@ -190,6 +190,7 @@ class Job(Contract):
     event_seq: int = 0
     error_code: str | None = None
     revision: int = 0
+    started_at: datetime | None = Field(default=None, exclude=True)
     pending_events: list[Event] = Field(default_factory=list, exclude=True)
 
     def emit(self, event_type: str, **data) -> None:

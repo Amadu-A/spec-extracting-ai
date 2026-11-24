@@ -32,16 +32,19 @@ class JobRepository(Protocol):
         """Читает приватный снимок; owner проверяется use-case."""
         ...
 
-    async def edit(self, job_id: str, change: Callable[[Job], None]) -> Job:
+    async def edit(
+        self,
+        job_id: str,
+        change: Callable[[Job], None],
+        *,
+        delivery_revision: int | None = None,
+        capacity: int | None = None,
+    ) -> Job:
         """Выполняет чистое изменение под блокировкой строки и общей транзакцией."""
         ...
 
     async def events(self, job_id: str, after: int, limit: int) -> list[Event]:
         """Возвращает ограниченный replay монотонных событий."""
-        ...
-
-    async def dispatchable(self, limit: int) -> list[str]:
-        """Находит queued и просроченные running для повторной доставки."""
         ...
 
     async def save_document(self, document: Document) -> None:

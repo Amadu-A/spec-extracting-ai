@@ -320,7 +320,7 @@ class ProfileProcessor:
         """Собирается только composition root; API не выбирает worker реализацию."""
         self.repository, self.specifications, self.invoices = repository, specifications, invoices
 
-    async def execute(self, job_id: str) -> None:
+    async def execute(self, job_id: str, delivery_revision: int | None = None) -> bool:
         """Повторная доставка использует тот же fencing lifecycle обоих профилей."""
         job = await self.repository.get(job_id)
         if job is not None:
@@ -329,4 +329,5 @@ class ProfileProcessor:
                 if getattr(job, "job_type", None) == "invoice"
                 else self.specifications
             )
-            await processor.execute(job_id)
+            return await processor.execute(job_id, delivery_revision)
+        return False

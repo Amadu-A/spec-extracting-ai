@@ -4,16 +4,75 @@
 import asyncio
 import contextlib
 import logging
+from random import uniform
 from time import time
 from uuid import UUID
 
 from app.bootstrap import build_container
 from app.core.observability import configure_logging
+from app.domain.delivery import LEGACY_DELIVERY
+
+logger = logging.getLogger(__name__)
+
+
+async def dispatch_once(container) -> int:
+    """Публикует не более четырёх резервов и ждёт положительного AMQP confirm каждого."""
+    sent = 0
+    for _ in range(min(4, container.settings.max_queued_jobs)):
+        claim = await container.repository.claim_delivery(container.settings.retention_seconds)
+        if claim is None:
+            break
+        detail = {
+            "job_id": claim.job_id,
+            "revision": claim.revision,
+            "attempt": claim.attempt,
+            "recovering": claim.recovering,
+        }
+        logger.info("delivery_attempt", extra=detail)
+        try:
+            # Включает reconnect и AMQP confirm, заведомо короче 30-секундного резерва.
+            async with asyncio.timeout(8):
+                await container.broker.publish(claim.job_id, claim.revision)
+        except Exception as exc:
+            delay = min(55, 2 ** min(claim.attempt, 6)) + uniform(0, 5)
+            await container.repository.finish_delivery(claim, delay)
+            logger.warning("delivery_retry", extra={**detail, "error_type": type(exc).__name__})
+            break
+        logger.info("delivery_confirm", extra=detail)
+        await container.repository.finish_delivery(claim, None)
+        sent += 1
+    return sent
+
+
+async def consume_delivery(container, message) -> None:
+    """ACK выполняется после durable работы или безопасного отказа в захвате."""
+    async with message.process(requeue=True):
+        revision = message.headers.get("revision", LEGACY_DELIVERY)
+        try:
+            job_id = str(UUID(message.body.decode("ascii")))
+            if "revision" in message.headers and (type(revision) is not int or revision < 0):
+                raise ValueError("Некорректная ревизия")
+        except (ValueError, UnicodeError):
+            logger.warning("invalid_queue_message")
+            return
+        try:
+            handled = await container.jobs.execute(job_id, revision)
+        except Exception:
+            # При недоступности БД не гоняем одну и ту же delivery в горячем цикле.
+            await asyncio.sleep(2)
+            raise
+    logger.info(
+        "delivery_ack" if handled else "delivery_ack_noop",
+        extra={
+            "job_id": job_id,
+            "revision": revision,
+            "redelivered": message.redelivered,
+        },
+    )
 
 
 async def maintenance(container) -> None:
-    """Переотправляет потерянные queued/stale jobs и обновляет heartbeat worker."""
-    dispatched: dict[str, float] = {}
+    """Отправляет только ожидающие резервы и обновляет heartbeat worker."""
     while True:
         try:
             await asyncio.to_thread(
@@ -21,13 +80,7 @@ async def maintenance(container) -> None:
                 str(time()),
                 encoding="ascii",
             )
-            for job_id in await container.repository.dispatchable(
-                container.settings.max_queued_jobs
-            ):
-                if time() - dispatched.get(job_id, 0) >= 60:
-                    await container.broker.publish(job_id)
-                    dispatched[job_id] = time()
-            dispatched = {key: stamp for key, stamp in dispatched.items() if time() - stamp < 300}
+            await dispatch_once(container)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -58,19 +111,20 @@ async def run() -> None:
 
     async def consume(message) -> None:
         """Ограничивает job concurrency независимо от размера доставки RabbitMQ."""
-        async with slots, message.process(requeue=True):
+        async with slots:
             try:
-                job_id = str(UUID(message.body.decode("ascii")))
-            except (ValueError, UnicodeError):
-                logging.getLogger(__name__).warning("invalid_queue_message")
-                return
-            await container.jobs.execute(job_id)
+                await consume_delivery(container, message)
+            except Exception as exc:
+                logger.warning(
+                    "delivery_processing_retry", extra={"error_type": type(exc).__name__}
+                )
 
     try:
         while True:
             try:
                 await container.broker.connect()
                 async with container.broker.queue.iterator() as iterator:
+                    logger.info("broker_consumer_subscribed")
                     async for message in iterator:
                         task = asyncio.create_task(consume(message))
                         active.add(task)

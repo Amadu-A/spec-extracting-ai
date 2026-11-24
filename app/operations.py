@@ -3,10 +3,12 @@
 
 import argparse
 import asyncio
+import json
 import re
 import sys
 from pathlib import Path
 from time import monotonic, time
+from uuid import UUID
 
 import httpx
 from pydantic import ValidationError
@@ -17,6 +19,7 @@ from app.bootstrap import build_container
 from app.core.observability import configure_logging
 from app.core.settings import Settings
 from app.domain.reconcile import parse_model_response
+from app.infrastructure.database import SqlRepository
 from app.infrastructure.environment import normalize_environment
 
 
@@ -160,6 +163,25 @@ async def broker_check(require_consumer: bool = False, root=None) -> int:
             await asyncio.gather(root.broker.close(), root.model.close(), return_exceptions=True)
 
 
+async def delivery_operation(settings: Settings, ids: list[str]) -> int:
+    """Читает только app-БД, либо планирует ограниченный ручной recovery известных UUID."""
+    repository = SqlRepository(settings.database_url)
+    try:
+        if ids:
+            selected = [str(UUID(value)) for value in ids]
+            queued = await repository.reconcile_deliveries(selected, settings.retention_seconds)
+            result = {"scheduled": queued, "unchanged": sorted(set(selected) - set(queued))}
+        else:
+            result = await repository.delivery_inventory(settings.retention_seconds)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    except Exception:
+        print("Доставка: проверьте UUID, миграцию и доступ к БД приложения", file=sys.stderr)
+        return 1
+    finally:
+        await asyncio.to_thread(repository.engine.dispose)
+
+
 def main() -> int:
     """Исполняет проверки; broker-config отдаёт секретный stdout только родительскому up.sh."""
     parser = argparse.ArgumentParser(description="Проверки сервиса спецификаций")
@@ -174,12 +196,19 @@ def main() -> int:
             "vision",
             "ready",
             "worker-health",
+            "delivery-status",
+            "delivery-reconcile",
         ),
     )
     parser.add_argument(
         "--require-consumer", action="store_true", help="Требовать AMQP-подписку worker"
     )
+    parser.add_argument(
+        "--job-id", action="append", default=[], help="UUID для delivery-reconcile, до 10"
+    )
     arguments = parser.parse_args()
+    if (arguments.operation == "delivery-reconcile") != bool(arguments.job_id):
+        parser.error("Для delivery-reconcile укажите --job-id, для остальных команд опустите")
     if arguments.operation == "broker-config":
         return broker_config()
     if arguments.operation == "normalize-env":
@@ -201,6 +230,8 @@ def main() -> int:
         return asyncio.run(preflight(arguments.operation == "vision"))
     if arguments.operation == "broker-check":
         return asyncio.run(broker_check(arguments.require_consumer))
+    if arguments.operation in ("delivery-status", "delivery-reconcile"):
+        return asyncio.run(delivery_operation(settings, arguments.job_id))
     if arguments.operation == "worker-health":
         try:
             stamp = float(

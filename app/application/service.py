@@ -156,6 +156,7 @@ class ExtractionService:
             "item_count": sum(len(p.items) for p in job.pages),
             "warning_count": sum(len(p.warnings) for p in job.pages),
             "created_at": job.created_at.isoformat(),
+            "started_at": job.started_at.isoformat() if job.started_at else None,
             "updated_at": job.updated_at.isoformat(),
             "expires_at": job.expires_at.isoformat(),
             "last_event_id": job.event_seq,
@@ -190,7 +191,7 @@ class ExtractionService:
 
         def change(job: Job) -> None:
             """Ставит флаг под row lock; queued отменяется до вызова worker."""
-            if job.state in TERMINAL:
+            if job.state in TERMINAL or job.cancel_requested:
                 return
             job.cancel_requested = True
             if job.state == JobState.QUEUED:
@@ -232,7 +233,7 @@ class ExtractionService:
             job.emit("result_invalidated", from_pdf_page=job.pages[index].pdf_page)
             job.emit("job_queued", selected_pdf_pages=job.selected_pdf_pages)
 
-        return await self.repository.edit(job_id, change)
+        return await self.repository.edit(job_id, change, capacity=self.settings.max_queued_jobs)
 
     async def purge_expired(self) -> None:
         """Завершает просроченные задания и удаляет истёкшие данные независимо от браузера."""
@@ -242,10 +243,15 @@ class ExtractionService:
 
             def fail(job: Job) -> None:
                 """Повторно проверяет deadline под lock и отзывает lease старого worker."""
-                if job.state in TERMINAL or job.expires_at - retention > now:
+                cancelled = job.cancel_requested and (
+                    job.expires_at - retention <= now
+                    or job.lease_until is None
+                    or job.lease_until <= now
+                )
+                if job.state in TERMINAL or (not cancelled and job.expires_at - retention > now):
                     return
-                job.transition(JobState.FAILED)
-                job.error_code = "job_timeout"
+                job.transition(JobState.CANCELLED if cancelled else JobState.FAILED)
+                job.error_code = None if cancelled else "job_timeout"
                 job.lease_token, job.lease_until = None, None
                 job.expires_at = now + retention
                 for page in job.pages:
@@ -254,7 +260,9 @@ class ExtractionService:
                     for stage in page.stages:
                         if stage.state == "running":
                             stage.state = "interrupted"
-                job.emit("job_failed", status="failed", error_code="job_timeout")
+                job.emit(
+                    "job_" + job.state.value, status=job.state.value, error_code=job.error_code
+                )
 
             await self.repository.edit(job_id, fail)
         for document_id in await self.repository.cleanup():

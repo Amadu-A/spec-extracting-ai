@@ -56,6 +56,7 @@ class InvoiceService(ExtractionService):
         if key and (len(key) > 190 or any(ord(c) < 32 for c in key)):
             raise ServiceError("invalid_idempotency_key", "Некорректный Idempotency-Key")
         saved, total_bytes = [], 0
+        admission_started = False
         active_expiry = utcnow() + timedelta(
             seconds=self.settings.job_timeout_seconds + self.settings.retention_seconds
         )
@@ -149,7 +150,17 @@ class InvoiceService(ExtractionService):
                 reconcile_prompt=self.reconcile_prompt,
             )
             job.emit("job_queued")
-            result = await self.repository.create(job, self.settings.max_queued_jobs)
+            admission_started = True
+            try:
+                result = await self.repository.create(job, self.settings.max_queued_jobs)
+            except ServiceError as exc:
+                # Эти отказы происходят до записи job. При сбое соединения commit может
+                # быть уже принят PostgreSQL, поэтому его исходники сохраняются до TTL.
+                if exc.code in ("queue_full", "idempotency_conflict"):
+                    admission_started = False
+                raise
+            if result.id != job.id:
+                admission_started = False
             if result.expires_at <= utcnow():
                 raise ServiceError("job_expired", "Истёк срок хранения идемпотентного задания", 410)
             if result.id != job.id:
@@ -157,8 +168,9 @@ class InvoiceService(ExtractionService):
                     await self.storage.delete(document_id)
             return result
         except BaseException:
-            for document_id in saved:
-                await self.storage.delete(document_id)
+            if not admission_started:
+                for document_id in saved:
+                    await self.storage.delete(document_id)
             raise
 
     async def owned(self, job_id: str, owner: str) -> InvoiceJob:
@@ -193,9 +205,11 @@ class InvoiceService(ExtractionService):
             ),
             warning_count=len(self.warnings(job)),
             error_code=job.error_code,
+            cancel_requested=job.cancel_requested,
             last_event_id=job.event_seq,
             expires_at=job.expires_at.isoformat(),
             created_at=job.created_at.isoformat(),
+            started_at=job.started_at.isoformat() if job.started_at else None,
             updated_at=job.updated_at.isoformat(),
             files=[
                 dict(
@@ -294,7 +308,7 @@ class InvoiceService(ExtractionService):
             )
             job.emit("job_queued")
 
-        return await self.repository.edit(job_id, change)
+        return await self.repository.edit(job_id, change, capacity=self.settings.max_queued_jobs)
 
     async def result(self, job_id: str, owner: str):
         """Partial доступен только в диагностике; успешный экспорт атомарен для всего batch."""

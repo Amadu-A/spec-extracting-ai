@@ -1,6 +1,7 @@
 # app/presentation/http/invoice_schemas.py
 """OpenAPI-схемы прогресса, диагностик и восстановления нового профиля."""
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import Field
@@ -45,6 +46,8 @@ class InvoiceStatus(Contract):
     item_count: int
     warning_count: int
     error_code: str | None
+    cancel_requested: bool = False
+    started_at: datetime | None = None
     last_event_id: int
     expires_at: str
     created_at: str

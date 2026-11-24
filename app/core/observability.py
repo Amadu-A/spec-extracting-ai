@@ -23,7 +23,18 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "service": "spec-extracting-ai",
         }
-        for name in ("operation", "duration_ms", "status", "job_id", "request_id"):
+        for name in (
+            "operation",
+            "duration_ms",
+            "status",
+            "job_id",
+            "request_id",
+            "revision",
+            "attempt",
+            "redelivered",
+            "recovering",
+            "error_type",
+        ):
             if hasattr(record, name):
                 data[name] = getattr(record, name)
         if record.exc_info:

@@ -76,6 +76,7 @@ class ExtractionStatus(BaseModel):
     prompt_version: str = Field(description="SHA256 неизменяемого prompt snapshot")
     error_code: str | None
     cancel_requested: bool
+    started_at: datetime | None = None
     pages: list[PageStatus]
     links: OutputLinks
 

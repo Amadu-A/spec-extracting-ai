@@ -40,7 +40,7 @@ class ExtractionProcessor:
         self.settings = settings
 
     @timed("process_extraction")
-    async def execute(self, job_id: str) -> None:
+    async def execute(self, job_id: str, delivery_revision: int | None = None) -> bool:
         """Захватывает lease и возобновляет работу с последнего committed листа."""
         lease = str(uuid4())
 
@@ -52,17 +52,22 @@ class ExtractionProcessor:
                 raise LeaseLost
             if job.state == JobState.RUNNING and job.lease_until and job.lease_until > utcnow():
                 raise LeaseLost
+            recovered = job.state == JobState.RUNNING
             job.transition(JobState.RUNNING)
             job.lease_token, job.lease_until = (
                 lease,
                 utcnow() + timedelta(seconds=self.settings.lease_seconds),
             )
-            job.emit("job_started", recovered=job.current_pdf_page is not None)
+            job.emit("job_started", recovered=recovered)
 
         try:
-            claimed = await self.repository.edit(job_id, claim)
-        except (LeaseLost, ServiceError):
-            return
+            claimed = await self.repository.edit(job_id, claim, delivery_revision=delivery_revision)
+        except LeaseLost:
+            return False
+        except ServiceError as exc:
+            if exc.code == "job_not_found":
+                return False
+            raise
         work = asyncio.create_task(self._process(job_id, lease))
         heartbeat = asyncio.create_task(self._heartbeat(job_id, lease))
         budget = (claimed.expires_at - utcnow()).total_seconds() - self.settings.retention_seconds
@@ -112,10 +117,16 @@ class ExtractionProcessor:
             for task in (work, heartbeat):
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
+        return True
 
     def _guard(self, job: Job, lease: str, check_cancel: bool = True) -> None:
         """Fencing token запрещает изменения старым worker после восстановления."""
-        if job.lease_token != lease or job.state != JobState.RUNNING:
+        if (
+            job.lease_token != lease
+            or job.state != JobState.RUNNING
+            or job.lease_until is None
+            or job.lease_until <= utcnow()
+        ):
             raise LeaseLost
         if check_cancel and job.cancel_requested:
             raise JobCancelled

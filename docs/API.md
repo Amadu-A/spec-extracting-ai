@@ -1,4 +1,6 @@
 <!-- docs/API.md -->
+
+Для интеграции с Mapper см. [контракт status, SSE, snapshot и отмены Stage 03A](STAGE_03A_JOB_DELIVERY.md#контракт-для-stage-03b).
 # Публичный API v1
 
 Сценарий счетов имеет отдельный namespace `/api/v1/invoice-extractions` и контракт
